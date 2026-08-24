@@ -488,9 +488,22 @@ class T3SessionsManager: ObservableObject {
         Task { @MainActor in
             if T3DesktopControl.runningApp() == nil {
                 _ = await T3DesktopControl.launchWithControl()
-                refreshNow()
             }
             T3DesktopControl.activate()
+            // The app's server child takes a few seconds to come up after
+            // launch; keep refreshing until we connect (or give up) so the
+            // tab fills in on its own instead of needing a second press.
+            await pollUntilConnected()
+        }
+    }
+
+    /// Polls a few times over ~15s, stopping as soon as the local server is
+    /// reachable, so state settles after a launch/relaunch without user input.
+    private func pollUntilConnected() async {
+        for _ in 0..<10 {
+            await pollAll()
+            if localStatus.isReachable { return }
+            try? await Task.sleep(for: .milliseconds(1500))
         }
     }
 
@@ -501,7 +514,7 @@ class T3SessionsManager: ObservableObject {
             if await T3DesktopControl.relaunchWithControl() {
                 desktopNeedsRelaunch = false
             }
-            refreshNow()
+            await pollUntilConnected()
         }
     }
 

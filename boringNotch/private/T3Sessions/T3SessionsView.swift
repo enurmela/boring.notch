@@ -15,14 +15,47 @@ struct T3SessionsView: View {
     private var hasRemotes: Bool { manager.sections.count > 1 }
 
     var body: some View {
-        Group {
-            if manager.hasAnyRows {
-                threadList
-            } else {
-                localEmptyState
+        VStack(spacing: 0) {
+            if manager.desktopNeedsRelaunch {
+                relaunchBanner
             }
+            Group {
+                if manager.hasAnyRows {
+                    threadList
+                } else {
+                    localEmptyState
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// Shown when T3 runs without its control channel (e.g. launched from the
+    /// Dock, or auto-updated and relaunched itself): sessions open in the
+    /// browser until T3 is relaunched with the channel.
+    private var relaunchBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "arrow.up.forward.app")
+                .foregroundStyle(.orange)
+            Text("Sessions open in the browser until T3 Code is relaunched.")
+                .font(.caption2)
+                .foregroundStyle(.white)
+            Spacer(minLength: 4)
+            Button("Relaunch") {
+                manager.relaunchDesktopWithControl()
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.mini)
+            .tint(.orange)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.orange.opacity(0.12))
+        )
+        .padding(.bottom, 4)
     }
 
     private var threadList: some View {
