@@ -35,6 +35,19 @@ machine**, and their sessions appear in their own group in the T3 tab. The
 settings pane shows the real T3 Code app icon, loaded at runtime from the
 installed bundle (no trademark assets are vendored into the repo).
 
+## Installing as a standalone app
+
+`scripts/install.sh` builds a Release copy and installs it to
+**/Applications/boringNotch (T3).app** — launch it from Spotlight or the Dock
+like any app, no Xcode needed. Re-run the script after pulling changes to
+update it. It ad-hoc signs in place (so the sandbox-free entitlements apply)
+and clears the quarantine flag.
+
+It installs beside the stock `/Applications/boringNotch.app` rather than
+replacing it; they share a bundle id (hence shared settings) and must not run
+at the same time (both drive the notch). Quit the stock app before launching
+this one, and vice-versa.
+
 ## Developing alongside the stable app
 
 The dev build and the stable `/Applications/boringNotch.app` share a bundle id,
