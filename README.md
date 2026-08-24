@@ -6,6 +6,18 @@
   <br>
 </h1>
 
+> **Fork: T3 Code integration.** This is a fork of
+> [TheBoredTeam/boring.notch](https://github.com/TheBoredTeam/boring.notch)
+> that adds a **T3 Code** tab to the notch — live agent sessions from a local
+> (or remote) [T3 Code](https://github.com/pingdotgg/t3code) server, with notch
+> notifications when an agent needs approval or input, finishes, or fails,
+> click-to-open the exact thread in the T3 app, a closed-notch live activity,
+> and a dedicated Calendar tab. All added code lives under
+> `boringNotch/private/T3Sessions/` and `boringNotch/private/ForkUI/`; see
+> **[T3SESSIONS.md](T3SESSIONS.md)** for how it works, how to install it, and
+> how the fork tracks upstream. All credit for Boring Notch itself goes to the
+> upstream authors; this fork remains GPL-3.0.
+
 
 <p align="center">
   <a title="Crowdin" target="_blank" href="https://crowdin.com/project/boring-notch"><img src="https://badges.crowdin.net/boring-notch/localized.svg"></a>
