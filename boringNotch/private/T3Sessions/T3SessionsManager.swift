@@ -24,6 +24,9 @@ extension Defaults.Keys {
     static let t3StickyTab = Key<Bool>("t3StickyTab", default: true)
     /// Music-style live status in the closed notch while agents are busy.
     static let t3LiveActivity = Key<Bool>("t3LiveActivity", default: true)
+    /// Keep the closed-notch status visible even when nothing is running,
+    /// as an ambient "T3 connected" indicator.
+    static let t3LiveActivityIdle = Key<Bool>("t3LiveActivityIdle", default: true)
     /// When the default browser last got a t3 web session via our pair link.
     static let t3BrowserPairedAt = Key<Date?>("t3BrowserPairedAt", default: nil)
     /// Prefer navigating the T3 desktop app (via its CDP control channel)
@@ -153,8 +156,11 @@ class T3SessionsManager: ObservableObject {
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
+                // A poll must never end the loop; on any failure fall back to
+                // the not-connected cadence and try again (e.g. the server
+                // restarting on a new port or briefly refusing connections).
                 let anyConnected = await self.pollAll()
-                try? await Task.sleep(for: .seconds(anyConnected ? 3 : 10))
+                try? await Task.sleep(for: .seconds(anyConnected ? 3 : 8))
             }
         }
     }
@@ -424,9 +430,16 @@ class T3SessionsManager: ObservableObject {
         }.count
     }
 
+    var isConnectedAnywhere: Bool {
+        sections.contains { if case .connected = $0.status { return true } else { return false } }
+    }
+
     /// Whether the closed-notch live activity has anything worth showing.
+    /// With the idle option on, it stays up as an ambient indicator whenever
+    /// T3 is connected, even at zero active agents.
     var hasLiveActivity: Bool {
-        activeCount > 0 || waitingCount > 0 || recentlyCompletedCount > 0
+        if activeCount > 0 || waitingCount > 0 || recentlyCompletedCount > 0 { return true }
+        return Defaults[.t3LiveActivityIdle] && isConnectedAnywhere
     }
 
     /// True when the desktop app is running but without its control channel,

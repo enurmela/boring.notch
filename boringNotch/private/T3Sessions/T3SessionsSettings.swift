@@ -143,6 +143,10 @@ struct T3SessionsSettings: View {
                     Defaults.Toggle(key: .t3LiveActivity) {
                         Text("Live status in the closed notch")
                     }
+                    Defaults.Toggle(key: .t3LiveActivityIdle) {
+                        Text("Keep it visible when nothing is running")
+                    }
+                    .disabled(!Defaults[.t3LiveActivity])
                     LabeledContent("T3 sessions on the Home tab") {
                         Text("Settings → Home")
                             .foregroundStyle(.secondary)

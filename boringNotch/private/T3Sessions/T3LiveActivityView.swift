@@ -61,6 +61,15 @@ struct T3LiveBadges: View {
             {
                 countBadge(manager.recentlyCompletedCount, color: .gray, symbol: "checkmark")
             }
+            // Idle: nothing running/waiting/just-finished — a dim dot so the
+            // ambient "T3 connected" indicator still reads as present.
+            if manager.waitingCount == 0, manager.activeCount == 0,
+               manager.recentlyCompletedCount == 0
+            {
+                Circle()
+                    .fill(Color.gray.opacity(0.55))
+                    .frame(width: 5, height: 5)
+            }
         }
     }
 
