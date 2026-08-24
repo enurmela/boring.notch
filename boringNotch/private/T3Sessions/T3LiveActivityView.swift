@@ -32,28 +32,40 @@ struct T3LiveActivityView: View {
                 .fill(.black)
                 .frame(width: vm.closedNotchSize.width - cornerRadiusInsets.closed.top)
 
-            HStack(spacing: 5) {
-                if manager.waitingCount > 0 {
-                    countBadge(manager.waitingCount, color: .orange)
-                }
-                if manager.activeCount > 0 {
-                    countBadge(manager.activeCount, color: .green, pulsing: true)
-                }
-                if manager.waitingCount == 0, manager.activeCount == 0,
-                   manager.recentlyCompletedCount > 0
-                {
-                    countBadge(manager.recentlyCompletedCount, color: .gray, symbol: "checkmark")
-                }
-            }
-            .frame(width: Self.trailingWidth, alignment: .center)
+            T3LiveBadges()
+                .frame(width: Self.trailingWidth, alignment: .center)
         }
         .frame(height: vm.effectiveClosedNotchHeight, alignment: .center)
     }
+}
+
+/// The compact phase counts alone — also docked next to the music visualizer
+/// when both live activities are on at once.
+struct T3LiveBadges: View {
+    @ObservedObject var manager = T3SessionsManager.shared
+
+    /// Width the notch chin reserves when these badges ride along with the
+    /// music live activity.
+    static let width: CGFloat = 50
+
+    var body: some View {
+        HStack(spacing: 5) {
+            if manager.waitingCount > 0 {
+                countBadge(manager.waitingCount, color: .orange)
+            }
+            if manager.activeCount > 0 {
+                countBadge(manager.activeCount, color: .green)
+            }
+            if manager.waitingCount == 0, manager.activeCount == 0,
+               manager.recentlyCompletedCount > 0
+            {
+                countBadge(manager.recentlyCompletedCount, color: .gray, symbol: "checkmark")
+            }
+        }
+    }
 
     @ViewBuilder
-    private func countBadge(
-        _ count: Int, color: Color, pulsing: Bool = false, symbol: String? = nil
-    ) -> some View {
+    private func countBadge(_ count: Int, color: Color, symbol: String? = nil) -> some View {
         HStack(spacing: 2) {
             if let symbol {
                 Image(systemName: symbol)

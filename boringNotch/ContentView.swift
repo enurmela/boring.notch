@@ -75,6 +75,9 @@ struct ContentView: View {
             && coordinator.musicLiveActivityEnabled && !vm.hideOnClosed
         {
             chinWidth += (2 * max(0, vm.effectiveClosedNotchHeight - 12) + 20)
+            if Defaults[.enableT3Sessions] && Defaults[.t3LiveActivity] && t3Manager.hasLiveActivity {
+                chinWidth += T3LiveBadges.width + 8
+            }
         } else if !coordinator.expandingView.show && vm.notchState == .closed
             && (!musicManager.isPlaying && musicManager.isPlayerIdle)
             && Defaults[.enableT3Sessions] && Defaults[.t3LiveActivity]
@@ -501,6 +504,11 @@ struct ContentView: View {
                 ),
                 alignment: .center
             )
+
+            if Defaults[.enableT3Sessions] && Defaults[.t3LiveActivity] && t3Manager.hasLiveActivity {
+                T3LiveBadges()
+                    .frame(width: T3LiveBadges.width, alignment: .center)
+            }
         }
         .frame(
             height: vm.effectiveClosedNotchHeight,
