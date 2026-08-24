@@ -192,6 +192,14 @@ struct T3ThreadRowView: View {
                     }
                     if let model = row.thread.modelSelection?.model {
                         Text("·")
+                        if let asset = T3Branding.providerAsset(
+                            providerName: row.thread.session?.providerName, model: model
+                        ) {
+                            Image(asset)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 9, height: 9)
+                        }
                         Text(model)
                     }
                 }

@@ -17,6 +17,19 @@ enum T3Branding {
     /// instead of an SF Symbol.
     static let tabIconToken = "t3.glyph"
 
+    /// Template asset name for the thread's model provider mark (svgl.app
+    /// logos in Assets.xcassets), nil when we don't have one.
+    static func providerAsset(providerName: String?, model: String?) -> String? {
+        let haystack = "\(providerName ?? "") \(model ?? "")".lowercased()
+        if haystack.contains("claude") || haystack.contains("anthropic") {
+            return "T3ProviderAnthropic"
+        }
+        if haystack.contains("codex") || haystack.contains("gpt") || haystack.contains("openai") {
+            return "T3ProviderOpenAI"
+        }
+        return nil
+    }
+
     static let appIcon: NSImage? = {
         let candidates = [
             "/Applications/T3 Code.app",
