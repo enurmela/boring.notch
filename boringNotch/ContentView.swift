@@ -69,7 +69,7 @@ struct ContentView: View {
         } else if coordinator.expandingView.type == .t3 && coordinator.expandingView.show
             && vm.notchState == .closed && Defaults[.enableT3Sessions]
         {
-            chinWidth = 640
+            chinWidth = 720
         } else if (!coordinator.expandingView.show || coordinator.expandingView.type == .music)
             && vm.notchState == .closed && (musicManager.isPlaying || !musicManager.isPlayerIdle)
             && coordinator.musicLiveActivityEnabled && !vm.hideOnClosed
