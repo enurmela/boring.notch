@@ -24,6 +24,8 @@ extension Defaults.Keys {
     static let t3StickyTab = Key<Bool>("t3StickyTab", default: true)
     /// Music-style live status in the closed notch while agents are busy.
     static let t3LiveActivity = Key<Bool>("t3LiveActivity", default: true)
+    /// When the default browser last got a t3 web session via our pair link.
+    static let t3BrowserPairedAt = Key<Date?>("t3BrowserPairedAt", default: nil)
     /// Show the T3 sessions widget in place of the calendar on the home tab.
     static let t3ReplaceCalendar = Key<Bool>("t3ReplaceCalendar", default: false)
 }
@@ -56,6 +58,8 @@ class T3SessionsManager: ObservableObject {
         let phase: T3AwarenessPhase
         let detail: String?
         let environmentId: String?
+        let serverOrigin: URL
+        let isLocalServer: Bool
         var id: String { thread.id }
     }
 
@@ -332,7 +336,12 @@ class T3SessionsManager: ObservableObject {
             lastError = nil
             return section(
                 .connected(label: descriptor.label, serverVersion: descriptor.serverVersion),
-                rows: rows(from: shell, environmentId: descriptor.environmentId)
+                rows: rows(
+                    from: shell,
+                    environmentId: descriptor.environmentId,
+                    serverOrigin: client.origin,
+                    isLocalServer: isLocal
+                )
             )
         } catch let error as T3ServerError where error.statusCode == 401 {
             return section(.tokenExpired(serverVersion: descriptor.serverVersion))
@@ -342,7 +351,12 @@ class T3SessionsManager: ObservableObject {
         }
     }
 
-    private func rows(from shell: T3ShellSnapshot, environmentId: String?) -> [ThreadRow] {
+    private func rows(
+        from shell: T3ShellSnapshot,
+        environmentId: String?,
+        serverOrigin: URL,
+        isLocalServer: Bool
+    ) -> [ThreadRow] {
         let projectTitles = Dictionary(
             shell.projects.map { ($0.id, $0.title) },
             uniquingKeysWith: { first, _ in first }
@@ -358,7 +372,9 @@ class T3SessionsManager: ObservableObject {
                     projectTitle: projectTitles[thread.projectId] ?? "Unknown project",
                     phase: phase,
                     detail: T3AgentAwareness.detail(for: phase, thread: thread),
-                    environmentId: environmentId
+                    environmentId: environmentId,
+                    serverOrigin: serverOrigin,
+                    isLocalServer: isLocalServer
                 )
             )
         }
@@ -402,20 +418,39 @@ class T3SessionsManager: ObservableObject {
         activeCount > 0 || waitingCount > 0 || recentlyCompletedCount > 0
     }
 
-    /// Opens this thread's chat in T3 Code: deep link into the desktop app
-    /// when a build is installed, the local web app in the browser otherwise.
+    /// Opens this thread's exact chat in the T3 web app (served by the same
+    /// server, thread routes are `/{environmentId}/{threadId}`). The desktop
+    /// app can't be used for this: it registers the t3code:// scheme but drops
+    /// every incoming URL (no open-url handler), so deep links only focus it.
     func openThread(_ row: ThreadRow) {
-        guard let env = row.environmentId?.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
-              let thread = row.thread.id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+        guard let env = row.environmentId,
+              let threadURL = URL(string: "\(row.serverOrigin.absoluteString)/\(env)/\(row.thread.id)")
         else { return }
-        // The desktop renderer is served from the t3code://app origin, so
-        // app-relative routes deep-link as t3code://app/<route>.
-        let url: URL? = Self.detectInstalledBuild() != nil
-            ? URL(string: "t3code://app/threads/\(env)/\(thread)")
-            : URL(string: "http://127.0.0.1:\(Defaults[.t3ServerPort])/threads/\(env)/\(thread)")
-        if let url {
-            NSWorkspace.shared.open(url)
+
+        // First open (or expired cookie): establish the browser session via
+        // the pair route with a self-minted credential, then follow with the
+        // thread URL once the session cookie is set. Local server only —
+        // remote servers show their inline pairing gate on the thread URL,
+        // which keeps the destination after a manual token paste.
+        if row.isLocalServer, needsBrowserPairing,
+           let credential = try? T3AutoPair.mintCredential(),
+           let pairURL = URL(string: "\(row.serverOrigin.absoluteString)/pair#token=\(credential)")
+        {
+            NSWorkspace.shared.open(pairURL)
+            Defaults[.t3BrowserPairedAt] = Date()
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(2.5))
+                NSWorkspace.shared.open(threadURL)
+            }
+            return
         }
+        NSWorkspace.shared.open(threadURL)
+    }
+
+    /// Browser session cookies last ~30 days; re-pair a little early.
+    private var needsBrowserPairing: Bool {
+        guard let pairedAt = Defaults[.t3BrowserPairedAt] else { return true }
+        return Date().timeIntervalSince(pairedAt) > 25 * 24 * 3600
     }
 
     // MARK: - Notifications
