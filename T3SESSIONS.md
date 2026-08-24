@@ -15,6 +15,25 @@ loopback HTTP API — no t3code fork or patching involved.
 4. If your server uses a non-default port, change it in the same pane
    (default 3773).
 
+### Remote machines
+
+T3 Code has no cloud sessions — one server is one machine. To see sessions from
+other machines (LAN/Tailscale), add them under **Remote Macs** in the settings
+pane (`host:port`), pair each one with a pairing link minted **on that
+machine**, and their sessions appear in their own group in the T3 tab. The
+settings pane shows the real T3 Code app icon, loaded at runtime from the
+installed bundle (no trademark assets are vendored into the repo).
+
+## Developing alongside the stable app
+
+The dev build and the stable `/Applications/boringNotch.app` share a bundle id,
+so they fight over the notch and must not run at once (they *share* settings
+and pairing, which is convenient). `scripts/dev.sh` handles the swap: quits
+stable, builds, runs the dev build in the foreground, and relaunches stable
+when it exits. If you ever promote a fork build into `/Applications`, watch
+out for Sparkle: its auto-update feed is upstream's and would overwrite the
+fork with a stock release.
+
 ## How it works
 
 - `T3SessionsManager` probes `GET /.well-known/t3/environment` to detect the

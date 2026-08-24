@@ -12,7 +12,13 @@ import Security
 
 enum T3Auth {
     private static let service = "boringNotch.t3code"
-    private static let account = "access-token"
+
+    /// One Keychain item per paired server. The local server keeps the
+    /// original account name so existing pairings survive.
+    static func account(forServer serverID: UUID?) -> String {
+        guard let serverID else { return "access-token" }
+        return "access-token-\(serverID.uuidString)"
+    }
 
     struct StoredToken: Codable {
         let accessToken: String
@@ -42,7 +48,7 @@ enum T3Auth {
         return nil
     }
 
-    static func store(result: T3AccessTokenResult) {
+    static func store(result: T3AccessTokenResult, account: String) {
         let token = StoredToken(
             accessToken: result.access_token,
             expiresAt: Date().addingTimeInterval(result.expires_in),
@@ -61,7 +67,7 @@ enum T3Auth {
         SecItemAdd(attributes as CFDictionary, nil)
     }
 
-    static func load() -> StoredToken? {
+    static func load(account: String) -> StoredToken? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -76,7 +82,7 @@ enum T3Auth {
         return try? JSONDecoder().decode(StoredToken.self, from: data)
     }
 
-    static func clear() {
+    static func clear(account: String) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,

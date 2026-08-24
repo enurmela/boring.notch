@@ -23,6 +23,14 @@ struct T3Client {
         self.origin = URL(string: "http://127.0.0.1:\(port)")!
     }
 
+    init?(originString: String) {
+        var raw = originString.trimmingCharacters(in: .whitespacesAndNewlines)
+        while raw.hasSuffix("/") { raw = String(raw.dropLast()) }
+        if !raw.contains("://") { raw = "http://\(raw)" }
+        guard let url = URL(string: raw), url.host != nil else { return nil }
+        self.origin = url
+    }
+
     /// Unauthenticated liveness + identity probe.
     func fetchDescriptor() async throws -> T3EnvironmentDescriptor {
         try await get("/.well-known/t3/environment", token: nil)

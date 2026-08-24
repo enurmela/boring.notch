@@ -2,7 +2,8 @@
 //  T3SessionsView.swift
 //  boringNotch
 //
-//  The "T3" notch tab: live agent threads from the local T3 Code server.
+//  The "T3" notch tab: live agent threads from the local T3 Code server and
+//  any configured remote machines, grouped per server.
 //
 
 import Defaults
@@ -11,53 +12,14 @@ import SwiftUI
 struct T3SessionsView: View {
     @ObservedObject var manager = T3SessionsManager.shared
 
+    private var hasRemotes: Bool { manager.sections.count > 1 }
+
     var body: some View {
         Group {
-            switch manager.status {
-            case .connected:
-                if manager.rows.isEmpty {
-                    emptyState(
-                        icon: "moon.zzz",
-                        title: "No active sessions",
-                        subtitle: "Threads appear here as soon as an agent runs."
-                    )
-                } else {
-                    threadList
-                }
-            case .disabled:
-                emptyState(
-                    icon: "sparkles.rectangle.stack",
-                    title: "T3 Code integration is off",
-                    subtitle: "Enable it in Settings → T3 Code.",
-                    showsSettings: true
-                )
-            case .notDetected:
-                emptyState(
-                    icon: "questionmark.app.dashed",
-                    title: "T3 Code not detected",
-                    subtitle: "Install T3 Code or start it with `npx t3`.",
-                    showsSettings: true
-                )
-            case .installedNotRunning(let build):
-                emptyState(
-                    icon: "power",
-                    title: "T3 Code (\(build)) isn't running",
-                    subtitle: "Launch the app and sessions will show up here."
-                )
-            case .unpaired:
-                emptyState(
-                    icon: "link.badge.plus",
-                    title: "Pair with T3 Code",
-                    subtitle: "Run `t3 pair` and paste the link in Settings → T3 Code.",
-                    showsSettings: true
-                )
-            case .tokenExpired:
-                emptyState(
-                    icon: "clock.badge.exclamationmark",
-                    title: "Pairing expired",
-                    subtitle: "Re-pair in Settings → T3 Code.",
-                    showsSettings: true
-                )
+            if manager.hasAnyRows {
+                threadList
+            } else {
+                localEmptyState
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -65,9 +27,26 @@ struct T3SessionsView: View {
 
     private var threadList: some View {
         ScrollView(showsIndicators: false) {
-            VStack(spacing: 6) {
-                ForEach(manager.rows) { row in
-                    T3ThreadRowView(row: row)
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(manager.sections) { section in
+                    // With just the local server there is nothing to separate —
+                    // skip the headers entirely.
+                    if hasRemotes {
+                        sectionHeader(section)
+                    }
+                    if section.rows.isEmpty {
+                        if hasRemotes {
+                            Text(emptyLabel(for: section))
+                                .font(.caption2)
+                                .foregroundStyle(.gray)
+                                .padding(.leading, 4)
+                                .padding(.bottom, 2)
+                        }
+                    } else {
+                        ForEach(section.rows) { row in
+                            T3ThreadRowView(row: row)
+                        }
+                    }
                 }
             }
             .padding(.top, 4)
@@ -76,13 +55,92 @@ struct T3SessionsView: View {
     }
 
     @ViewBuilder
+    private func sectionHeader(_ section: T3SessionsManager.ServerSection) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: section.isLocal ? "laptopcomputer" : "network")
+                .font(.caption2)
+            Text(section.name)
+                .font(.caption2.weight(.semibold))
+                .textCase(.uppercase)
+            if !section.status.isReachable {
+                Text("· offline")
+                    .font(.caption2)
+            }
+            Spacer()
+        }
+        .foregroundStyle(.gray)
+        .padding(.leading, 4)
+        .padding(.top, 2)
+    }
+
+    private func emptyLabel(for section: T3SessionsManager.ServerSection) -> String {
+        switch section.status {
+        case .connected: return "No active sessions"
+        case .unpaired, .tokenExpired: return "Not paired"
+        case .badOrigin: return "Invalid address"
+        default: return "Not reachable"
+        }
+    }
+
+    @ViewBuilder
+    private var localEmptyState: some View {
+        switch manager.localStatus {
+        case .connected:
+            emptyState(
+                icon: "moon.zzz",
+                title: "No active sessions",
+                subtitle: "Threads appear here as soon as an agent runs."
+            )
+        case .disabled:
+            emptyState(
+                icon: nil,
+                title: "T3 Code integration is off",
+                subtitle: "Enable it in Settings → T3 Code.",
+                showsSettings: true
+            )
+        case .notDetected, .badOrigin, .unreachable:
+            emptyState(
+                icon: nil,
+                title: "T3 Code not detected",
+                subtitle: "Install T3 Code or start it with `npx t3`.",
+                showsSettings: true
+            )
+        case .installedNotRunning(let build):
+            emptyState(
+                icon: "power",
+                title: "T3 Code (\(build)) isn't running",
+                subtitle: "Launch the app and sessions will show up here."
+            )
+        case .unpaired:
+            emptyState(
+                icon: "link.badge.plus",
+                title: "Pair with T3 Code",
+                subtitle: "Run `t3 pair` and paste the link in Settings → T3 Code.",
+                showsSettings: true
+            )
+        case .tokenExpired:
+            emptyState(
+                icon: "clock.badge.exclamationmark",
+                title: "Pairing expired",
+                subtitle: "Re-pair in Settings → T3 Code.",
+                showsSettings: true
+            )
+        }
+    }
+
+    @ViewBuilder
     private func emptyState(
-        icon: String, title: String, subtitle: String, showsSettings: Bool = false
+        icon: String?, title: String, subtitle: String, showsSettings: Bool = false
     ) -> some View {
         VStack(spacing: 6) {
-            Image(systemName: icon)
-                .font(.title2)
-                .foregroundStyle(.gray)
+            if let icon {
+                Image(systemName: icon)
+                    .font(.title2)
+                    .foregroundStyle(.gray)
+            } else {
+                T3LogoView(size: 28)
+                    .opacity(0.8)
+            }
             Text(title)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.white)

@@ -20,7 +20,7 @@ struct T3NotchAlertView: View {
                     .font(.subheadline)
                     .foregroundStyle(.white)
                     .lineLimit(1)
-                Text(manager.latestAlert?.threadTitle ?? "")
+                Text(alertSubtitle)
                     .font(.subheadline)
                     .foregroundStyle(.gray)
                     .lineLimit(1)
@@ -40,5 +40,13 @@ struct T3NotchAlertView: View {
             .frame(width: 76, alignment: .leading)
         }
         .frame(height: vm.effectiveClosedNotchHeight, alignment: .center)
+    }
+
+    private var alertSubtitle: String {
+        guard let alert = manager.latestAlert else { return "" }
+        if let server = alert.serverName {
+            return "\(alert.threadTitle) · \(server)"
+        }
+        return alert.threadTitle
     }
 }

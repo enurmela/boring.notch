@@ -2,8 +2,8 @@
 //  T3SessionsManager.swift
 //  boringNotch
 //
-//  Watches the local T3 Code server: detects the install, polls the
-//  orchestration shell while the server is up, and raises notch notifications
+//  Watches T3 Code servers — the local one plus any user-configured remote
+//  machines — polls their orchestration shells, and raises notch notifications
 //  when a thread crosses into a phase the user should act on.
 //
 
@@ -15,6 +15,7 @@ import SwiftUI
 extension Defaults.Keys {
     static let enableT3Sessions = Key<Bool>("enableT3Sessions", default: false)
     static let t3ServerPort = Key<Int>("t3ServerPort", default: 3773)
+    static let t3RemoteServers = Key<[T3RemoteServer]>("t3RemoteServers", default: [])
     static let t3NotifyApproval = Key<Bool>("t3NotifyApproval", default: true)
     static let t3NotifyInput = Key<Bool>("t3NotifyInput", default: true)
     static let t3NotifyCompleted = Key<Bool>("t3NotifyCompleted", default: true)
@@ -29,6 +30,8 @@ class T3SessionsManager: ObservableObject {
         case disabled
         case notDetected
         case installedNotRunning(build: String)
+        case unreachable
+        case badOrigin
         case unpaired(serverVersion: String)
         case tokenExpired(serverVersion: String)
         case connected(label: String, serverVersion: String)
@@ -49,27 +52,54 @@ class T3SessionsManager: ObservableObject {
         var id: String { thread.id }
     }
 
+    /// One connected-or-configured server and its current threads. The local
+    /// server is always first; remotes follow in settings order.
+    struct ServerSection: Identifiable {
+        let id: String
+        let name: String
+        let isLocal: Bool
+        let status: ServerStatus
+        var rows: [ThreadRow] = []
+    }
+
     struct NotchAlert {
         let threadTitle: String
         let projectTitle: String
+        let serverName: String?
         let phase: T3AwarenessPhase
     }
 
-    @Published private(set) var status: ServerStatus = .disabled
-    @Published private(set) var rows: [ThreadRow] = []
+    static let localServerID = "local"
+
+    @Published private(set) var sections: [ServerSection] = []
     @Published private(set) var latestAlert: NotchAlert?
     @Published private(set) var lastError: String?
 
-    /// Threads currently blocked on the user (approval/input) — shown as the
-    /// tab badge.
+    var localStatus: ServerStatus {
+        sections.first(where: { $0.isLocal })?.status ?? .disabled
+    }
+
+    func status(forRemote id: UUID) -> ServerStatus {
+        sections.first(where: { $0.id == id.uuidString })?.status ?? .unreachable
+    }
+
+    var hasAnyRows: Bool { sections.contains { !$0.rows.isEmpty } }
+
+    /// Threads currently blocked on the user (approval/input) across all
+    /// servers — shown as the tab badge.
     var actionableCount: Int {
-        rows.filter { $0.phase == .waitingForApproval || $0.phase == .waitingForInput }.count
+        sections
+            .flatMap(\.rows)
+            .filter { $0.phase == .waitingForApproval || $0.phase == .waitingForInput }
+            .count
     }
 
     private var pollTask: Task<Void, Never>?
-    private var enabledCancellable: AnyCancellable?
+    private var settingsCancellables: Set<AnyCancellable> = []
+    /// Last known phase per "serverID/threadID"; baseline tracked per server
+    /// so a newly added remote doesn't fire a notification burst.
     private var knownPhases: [String: T3AwarenessPhase] = [:]
-    private var hasBaseline = false
+    private var baselinedServers: Set<String> = []
 
     private static let appBundleCandidates: [(path: String, build: String)] = [
         ("/Applications/T3 Code.app", "release"),
@@ -77,12 +107,18 @@ class T3SessionsManager: ObservableObject {
     ]
 
     private init() {
-        enabledCancellable = Defaults.publisher(.enableT3Sessions)
+        Defaults.publisher(.enableT3Sessions)
             .sink { [weak self] change in
                 Task { @MainActor in
                     change.newValue ? self?.start() : self?.stop()
                 }
             }
+            .store(in: &settingsCancellables)
+        Defaults.publisher(.t3RemoteServers)
+            .sink { [weak self] _ in
+                Task { @MainActor in self?.refreshNow() }
+            }
+            .store(in: &settingsCancellables)
         if Defaults[.enableT3Sessions] {
             start()
         }
@@ -102,8 +138,8 @@ class T3SessionsManager: ObservableObject {
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
-                let interval = await self.pollOnce()
-                try? await Task.sleep(for: .seconds(interval))
+                let anyConnected = await self.pollAll()
+                try? await Task.sleep(for: .seconds(anyConnected ? 3 : 10))
             }
         }
     }
@@ -111,27 +147,31 @@ class T3SessionsManager: ObservableObject {
     func stop() {
         pollTask?.cancel()
         pollTask = nil
-        status = .disabled
-        rows = []
+        sections = []
         knownPhases = [:]
-        hasBaseline = false
+        baselinedServers = []
     }
 
     func refreshNow() {
-        Task { await pollOnce() }
+        Task { await pollAll() }
     }
 
-    func pair(with input: String) async -> Bool {
+    // MARK: - Pairing
+
+    func pair(serverID: UUID?, with input: String) async -> Bool {
         guard let credential = T3Auth.pairingCredential(from: input) else {
             lastError = "Could not find a pairing token in that link."
             return false
         }
-        let client = T3Client(port: Defaults[.t3ServerPort])
+        guard let client = client(forServerID: serverID) else {
+            lastError = "Invalid server address."
+            return false
+        }
         do {
             let result = try await client.exchangeToken(pairingCredential: credential)
-            T3Auth.store(result: result)
+            T3Auth.store(result: result, account: T3Auth.account(forServer: serverID))
             lastError = nil
-            await pollOnce()
+            await pollAll()
             return true
         } catch let error as T3ServerError {
             lastError = "Pairing failed (HTTP \(error.statusCode)). Pairing links expire after a few minutes — mint a fresh one with `t3 pair`."
@@ -142,69 +182,132 @@ class T3SessionsManager: ObservableObject {
         }
     }
 
-    func unpair() {
-        T3Auth.clear()
-        knownPhases = [:]
-        hasBaseline = false
-        rows = []
+    func unpair(serverID: UUID?) {
+        T3Auth.clear(account: T3Auth.account(forServer: serverID))
+        let sectionID = serverID?.uuidString ?? Self.localServerID
+        knownPhases = knownPhases.filter { !$0.key.hasPrefix("\(sectionID)/") }
+        baselinedServers.remove(sectionID)
         refreshNow()
     }
 
-    /// One poll cycle; returns the delay until the next one.
+    func removeRemote(_ server: T3RemoteServer) {
+        unpair(serverID: server.id)
+        Defaults[.t3RemoteServers].removeAll { $0.id == server.id }
+    }
+
+    // MARK: - Polling
+
+    private func client(forServerID serverID: UUID?) -> T3Client? {
+        guard let serverID else { return T3Client(port: Defaults[.t3ServerPort]) }
+        guard let server = Defaults[.t3RemoteServers].first(where: { $0.id == serverID }) else {
+            return nil
+        }
+        return T3Client(originString: server.origin)
+    }
+
+    /// Polls every configured server concurrently; returns whether any of
+    /// them is connected (drives the poll cadence).
     @discardableResult
-    private func pollOnce() async -> TimeInterval {
-        let client = T3Client(port: Defaults[.t3ServerPort])
+    private func pollAll() async -> Bool {
+        let remotes = Defaults[.t3RemoteServers]
+
+        async let localResult = pollServer(
+            sectionID: Self.localServerID,
+            name: "This Mac",
+            isLocal: true,
+            client: T3Client(port: Defaults[.t3ServerPort]),
+            tokenAccount: T3Auth.account(forServer: nil)
+        )
+        let remoteResults = await withTaskGroup(
+            of: (Int, ServerSection).self,
+            returning: [ServerSection].self
+        ) { group in
+            for (index, remote) in remotes.enumerated() {
+                group.addTask { @MainActor in
+                    let section = await self.pollServer(
+                        sectionID: remote.id.uuidString,
+                        name: remote.name.isEmpty ? remote.origin : remote.name,
+                        isLocal: false,
+                        client: T3Client(originString: remote.origin),
+                        tokenAccount: T3Auth.account(forServer: remote.id)
+                    )
+                    return (index, section)
+                }
+            }
+            var collected: [(Int, ServerSection)] = []
+            for await item in group { collected.append(item) }
+            return collected.sorted { $0.0 < $1.0 }.map(\.1)
+        }
+
+        var newSections = [await localResult]
+        newSections.append(contentsOf: remoteResults)
+
+        withAnimation(.smooth) {
+            sections = newSections
+        }
+        notifyOnTransitions(sections: newSections)
+
+        return newSections.contains { $0.status.isReachable }
+    }
+
+    private func pollServer(
+        sectionID: String,
+        name: String,
+        isLocal: Bool,
+        client: T3Client?,
+        tokenAccount: String
+    ) async -> ServerSection {
+        func section(_ status: ServerStatus, rows: [ThreadRow] = []) -> ServerSection {
+            ServerSection(id: sectionID, name: name, isLocal: isLocal, status: status, rows: rows)
+        }
+
+        guard let client else { return section(.badOrigin) }
 
         guard let descriptor = try? await client.fetchDescriptor() else {
-            knownPhases = [:]
-            hasBaseline = false
-            rows = []
-            if let build = Self.detectInstalledBuild() {
-                status = .installedNotRunning(build: build)
-            } else {
-                status = .notDetected
+            baselinedServers.remove(sectionID)
+            knownPhases = knownPhases.filter { !$0.key.hasPrefix("\(sectionID)/") }
+            if isLocal {
+                if let build = Self.detectInstalledBuild() {
+                    return section(.installedNotRunning(build: build))
+                }
+                return section(.notDetected)
             }
-            return 10
+            return section(.unreachable)
         }
 
-        guard let token = T3Auth.load() else {
-            status = .unpaired(serverVersion: descriptor.serverVersion)
-            return 5
+        guard let token = T3Auth.load(account: tokenAccount) else {
+            return section(.unpaired(serverVersion: descriptor.serverVersion))
         }
         guard !token.isExpired else {
-            status = .tokenExpired(serverVersion: descriptor.serverVersion)
-            return 10
+            return section(.tokenExpired(serverVersion: descriptor.serverVersion))
         }
 
         do {
             let shell = try await client.fetchShell(token: token.accessToken)
-            status = .connected(label: descriptor.label, serverVersion: descriptor.serverVersion)
             lastError = nil
-            ingest(shell)
-            return 3
+            return section(
+                .connected(label: descriptor.label, serverVersion: descriptor.serverVersion),
+                rows: rows(from: shell)
+            )
         } catch let error as T3ServerError where error.statusCode == 401 {
-            status = .tokenExpired(serverVersion: descriptor.serverVersion)
-            return 10
+            return section(.tokenExpired(serverVersion: descriptor.serverVersion))
         } catch {
             lastError = error.localizedDescription
-            return 5
+            return section(.unreachable)
         }
     }
 
-    private func ingest(_ shell: T3ShellSnapshot) {
+    private func rows(from shell: T3ShellSnapshot) -> [ThreadRow] {
         let projectTitles = Dictionary(
             shell.projects.map { ($0.id, $0.title) },
             uniquingKeysWith: { first, _ in first }
         )
 
-        var newRows: [ThreadRow] = []
-        var newPhases: [String: T3AwarenessPhase] = [:]
-
+        var rows: [ThreadRow] = []
         for thread in shell.threads {
             guard thread.archivedAt == nil, !isSnoozed(thread) else { continue }
             guard let phase = T3AgentAwareness.phase(for: thread) else { continue }
-            newPhases[thread.id] = phase
-            newRows.append(
+            rows.append(
                 ThreadRow(
                     thread: thread,
                     projectTitle: projectTitles[thread.projectId] ?? "Unknown project",
@@ -214,42 +317,51 @@ class T3SessionsManager: ObservableObject {
             )
         }
 
-        newRows.sort { lhs, rhs in
+        rows.sort { lhs, rhs in
             if lhs.phase.isActionable != rhs.phase.isActionable {
                 return lhs.phase.isActionable
             }
             return lhs.thread.updatedAt > rhs.thread.updatedAt
         }
-
-        withAnimation(.smooth) {
-            rows = newRows
-        }
-
-        if hasBaseline {
-            notifyOnTransitions(newPhases: newPhases, newRows: newRows)
-        }
-        knownPhases = newPhases
-        hasBaseline = true
+        return rows
     }
 
-    private func notifyOnTransitions(newPhases: [String: T3AwarenessPhase], newRows: [ThreadRow]) {
+    // MARK: - Notifications
+
+    private func notifyOnTransitions(sections: [ServerSection]) {
+        var newPhases: [String: T3AwarenessPhase] = [:]
+        var candidates: [(row: ThreadRow, section: ServerSection, key: String)] = []
+
+        for section in sections where section.status.isReachable {
+            for row in section.rows {
+                let key = "\(section.id)/\(row.id)"
+                newPhases[key] = row.phase
+                if baselinedServers.contains(section.id) {
+                    candidates.append((row, section, key))
+                }
+            }
+            baselinedServers.insert(section.id)
+        }
+
+        defer { knownPhases = newPhases }
+
         // Highest-priority transition wins the (single) notch slot.
         let priority: [T3AwarenessPhase] = [.waitingForApproval, .waitingForInput, .failed, .completed]
-
         for wanted in priority {
             guard isNotifyEnabled(for: wanted) else { continue }
-            guard let row = newRows.first(where: { row in
-                newPhases[row.id] == wanted && knownPhases[row.id] != wanted
+            guard let hit = candidates.first(where: { candidate in
+                candidate.row.phase == wanted && knownPhases[candidate.key] != wanted
             }) else { continue }
             // "completed" only counts coming out of live work — a thread first
             // seen as completed (e.g. server restart) shouldn't ping.
             if wanted == .completed {
-                let previous = knownPhases[row.id]
+                let previous = knownPhases[hit.key]
                 guard previous == .running || previous == .starting else { continue }
             }
             latestAlert = NotchAlert(
-                threadTitle: row.thread.title,
-                projectTitle: row.projectTitle,
+                threadTitle: hit.row.thread.title,
+                projectTitle: hit.row.projectTitle,
+                serverName: hit.section.isLocal ? nil : hit.section.name,
                 phase: wanted
             )
             BoringViewCoordinator.shared.toggleExpandingView(status: true, type: .t3)

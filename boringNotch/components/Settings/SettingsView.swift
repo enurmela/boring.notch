@@ -55,7 +55,11 @@ struct SettingsView: View {
                     Label("Shortcuts", systemImage: "keyboard")
                 }
                 NavigationLink(value: "T3 Code") {
-                    Label("T3 Code", systemImage: "sparkles.rectangle.stack")
+                    Label {
+                        Text("T3 Code")
+                    } icon: {
+                        T3LogoView(size: 16)
+                    }
                 }
                 // NavigationLink(value: "Extensions") {
                 //     Label("Extensions", systemImage: "puzzlepiece.extension")
