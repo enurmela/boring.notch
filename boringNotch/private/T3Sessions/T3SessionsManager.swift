@@ -378,8 +378,10 @@ class T3SessionsManager: ObservableObject {
         guard let env = row.environmentId?.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
               let thread = row.thread.id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
         else { return }
+        // The desktop renderer is served from the t3code://app origin, so
+        // app-relative routes deep-link as t3code://app/<route>.
         let url: URL? = Self.detectInstalledBuild() != nil
-            ? URL(string: "t3code://threads/\(env)/\(thread)")
+            ? URL(string: "t3code://app/threads/\(env)/\(thread)")
             : URL(string: "http://127.0.0.1:\(Defaults[.t3ServerPort])/threads/\(env)/\(thread)")
         if let url {
             NSWorkspace.shared.open(url)

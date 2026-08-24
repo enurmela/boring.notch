@@ -726,7 +726,10 @@ struct CalendarSettings: View {
     var body: some View {
         Form {
             Defaults.Toggle(key: .showCalendar) {
-                Text("Show calendar")
+                Text("Show calendar on the Home tab")
+            }
+            Defaults.Toggle(key: .calendarTab) {
+                Text("Show a dedicated Calendar tab")
             }
             Defaults.Toggle(key: .hideCompletedReminders) {
                 Text("Hide completed reminders")
