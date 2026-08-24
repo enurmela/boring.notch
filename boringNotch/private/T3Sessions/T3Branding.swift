@@ -25,6 +25,23 @@ enum T3Branding {
     }()
 }
 
+/// Monochrome "T3" badge drawn natively — matches SF Symbol template styling
+/// (inherits foreground color), for places like the settings sidebar where the
+/// full-color app icon clashes.
+struct T3GlyphView: View {
+    var size: CGFloat = 16
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: size * 0.24)
+                .strokeBorder(lineWidth: max(1, size * 0.08))
+            Text("T3")
+                .font(.system(size: size * 0.5, weight: .heavy, design: .rounded))
+        }
+        .frame(width: size, height: size)
+    }
+}
+
 /// T3 Code logo at a given point size, SF Symbol fallback when not installed.
 struct T3LogoView: View {
     var size: CGFloat = 18

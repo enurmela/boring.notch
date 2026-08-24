@@ -95,6 +95,7 @@ class T3SessionsManager: ObservableObject {
     }
 
     private var pollTask: Task<Void, Never>?
+    private var lastAutoPairAttempt: Date = .distantPast
     private var settingsCancellables: Set<AnyCancellable> = []
     /// Last known phase per "serverID/threadID"; baseline tracked per server
     /// so a newly added remote doesn't fire a notification burst.
@@ -158,6 +159,28 @@ class T3SessionsManager: ObservableObject {
 
     // MARK: - Pairing
 
+    /// True when the local t3 state directory is writable, i.e. zero-click
+    /// pairing works and the manual flow is only needed for remote machines.
+    var canAutoPairLocal: Bool { T3AutoPair.isAvailable }
+
+    private func autoPairLocal() async -> Bool {
+        guard T3AutoPair.isAvailable,
+              Date().timeIntervalSince(lastAutoPairAttempt) > 30
+        else { return false }
+        lastAutoPairAttempt = Date()
+        do {
+            let credential = try T3AutoPair.mintCredential()
+            let client = T3Client(port: Defaults[.t3ServerPort])
+            let result = try await client.exchangeToken(pairingCredential: credential)
+            T3Auth.store(result: result, account: T3Auth.account(forServer: nil))
+            lastError = nil
+            return true
+        } catch {
+            lastError = "Auto-pairing failed: \(error.localizedDescription)"
+            return false
+        }
+    }
+
     func pair(serverID: UUID?, with input: String) async -> Bool {
         guard let credential = T3Auth.pairingCredential(from: input) else {
             lastError = "Could not find a pairing token in that link."
@@ -211,13 +234,16 @@ class T3SessionsManager: ObservableObject {
     private func pollAll() async -> Bool {
         let remotes = Defaults[.t3RemoteServers]
 
-        async let localResult = pollServer(
-            sectionID: Self.localServerID,
-            name: "This Mac",
-            isLocal: true,
-            client: T3Client(port: Defaults[.t3ServerPort]),
-            tokenAccount: T3Auth.account(forServer: nil)
-        )
+        func pollLocal() async -> ServerSection {
+            await pollServer(
+                sectionID: Self.localServerID,
+                name: "This Mac",
+                isLocal: true,
+                client: T3Client(port: Defaults[.t3ServerPort]),
+                tokenAccount: T3Auth.account(forServer: nil)
+            )
+        }
+        async let localResult = pollLocal()
         let remoteResults = await withTaskGroup(
             of: (Int, ServerSection).self,
             returning: [ServerSection].self
@@ -239,7 +265,19 @@ class T3SessionsManager: ObservableObject {
             return collected.sorted { $0.0 < $1.0 }.map(\.1)
         }
 
-        var newSections = [await localResult]
+        var localSection = await localResult
+        // Local server needs (re-)pairing: mint a credential in the t3
+        // server's own store and exchange it — no user interaction.
+        switch localSection.status {
+        case .unpaired, .tokenExpired:
+            if await autoPairLocal() {
+                localSection = await pollLocal()
+            }
+        default:
+            break
+        }
+
+        var newSections = [localSection]
         newSections.append(contentsOf: remoteResults)
 
         withAnimation(.smooth) {

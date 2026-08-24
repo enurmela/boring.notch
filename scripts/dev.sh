@@ -12,9 +12,10 @@ echo "› Quitting stable boringNotch…"
 osascript -e 'tell application "boringNotch" to quit' 2>/dev/null || true
 
 echo "› Building…"
+# Ad-hoc signing so the (sandbox-free) entitlements actually apply.
 xcodebuild -project boringNotch.xcodeproj -scheme boringNotch \
   -configuration Debug -derivedDataPath build/DerivedData \
-  CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" build | grep -E "error|BUILD" || true
+  CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="-" DEVELOPMENT_TEAM="" build | grep -E "error|BUILD" || true
 
 restore_stable() {
   echo "› Restoring stable boringNotch…"

@@ -51,16 +51,40 @@ struct T3SessionsSettings: View {
 
             if enableT3Sessions {
                 Section {
-                    T3PairingControls(
-                        serverID: nil,
-                        status: manager.localStatus,
-                        manager: manager
-                    )
+                    if manager.canAutoPairLocal {
+                        HStack {
+                            Text("Pairing")
+                            Spacer()
+                            if case .connected(let label, _) = manager.localStatus {
+                                Label("Automatic · \(label)", systemImage: "wand.and.stars")
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Label("Automatic", systemImage: "wand.and.stars")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        if let error = manager.lastError {
+                            Text(error)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
+                    } else {
+                        T3PairingControls(
+                            serverID: nil,
+                            status: manager.localStatus,
+                            manager: manager
+                        )
+                    }
                 } header: {
                     Text("Pairing")
                 } footer: {
-                    Text("Run `t3 pair` (or `npx t3@latest pair`) in a terminal while the T3 Code server is running, then paste the printed pairing link here. Links expire after a few minutes.")
-                        .foregroundStyle(.secondary)
+                    if manager.canAutoPairLocal {
+                        Text("This Mac pairs itself with the local T3 Code server — nothing to do here. Remote machines below still need a pairing link.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Run `t3 pair` (or `npx t3@latest pair`) in a terminal while the T3 Code server is running, then paste the printed pairing link here. Links expire after a few minutes.")
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 Section {

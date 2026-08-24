@@ -9,11 +9,22 @@ loopback HTTP API — no t3code fork or patching involved.
 
 1. Have T3 Code running (desktop app — release or nightly — or `npx t3`).
 2. In boring.notch settings, open **T3 Code** and enable the integration.
-3. Run `t3 pair` (or `npx t3@latest pair`) in a terminal and paste the printed
-   pairing link into the settings pane. The pane exchanges it for a 30-day
-   bearer token (scope `orchestration:read`) stored in the Keychain.
+3. That's it for the local server: the fork **pairs itself** — it mints a
+   one-time pairing credential directly in the t3 server's own store
+   (`~/.t3/userdata/state.sqlite`, exactly what `t3 pair` does) and exchanges
+   it for a 30-day bearer token (scope `orchestration:read`) in the Keychain.
+   Tokens re-mint automatically on expiry. Manual pairing-link entry remains
+   as a fallback when `~/.t3` isn't writable.
 4. If your server uses a non-default port, change it in the same pane
    (default 3773).
+
+Auto-pairing is why this fork **disables the App Sandbox**
+(`boringNotch/boringNotch.entitlements`): the app needs to read/write
+`~/.t3`. Note the sandboxed stable app and this fork therefore use different
+preference stores (container vs `~/Library/Preferences`) — migrate once with
+`defaults export theboringteam.boringnotch /tmp/bn.plist && defaults import
+~/Library/Preferences/theboringteam.boringnotch.plist /tmp/bn.plist &&
+killall cfprefsd`.
 
 ### Remote machines
 
@@ -70,6 +81,7 @@ mangles them):
 | `boringNotch/components/Notch/BoringHeader.swift` | show tab bar when T3 is enabled |
 | `boringNotch/components/Settings/SettingsView.swift` | settings nav link + pane case |
 | `boringNotch/boringNotchApp.swift` | start `T3SessionsManager` at launch |
+| `boringNotch/boringNotch.entitlements` | App Sandbox disabled (auto-pairing needs `~/.t3`) |
 
 The Swift compiler enforces most of these: `NotchViews` and `SneakContentType`
 switches are exhaustive, so a lost edit shows up as a build error, not silent

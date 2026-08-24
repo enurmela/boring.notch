@@ -58,7 +58,7 @@ struct SettingsView: View {
                     Label {
                         Text("T3 Code")
                     } icon: {
-                        T3LogoView(size: 16)
+                        T3GlyphView(size: 15)
                     }
                 }
                 // NavigationLink(value: "Extensions") {
