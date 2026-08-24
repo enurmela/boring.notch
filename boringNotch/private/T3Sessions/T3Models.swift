@@ -70,6 +70,8 @@ struct T3ThreadShell: Decodable, Identifiable {
     let updatedAt: String
     let archivedAt: String?
     let snoozedUntil: String?
+    let settledAt: String?
+    let settledOverride: String?
     let hasPendingApprovals: Bool
     let hasPendingUserInput: Bool
     let hasActionableProposedPlan: Bool

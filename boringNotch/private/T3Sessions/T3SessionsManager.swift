@@ -375,7 +375,7 @@ class T3SessionsManager: ObservableObject {
 
         var rows: [ThreadRow] = []
         for thread in shell.threads {
-            guard thread.archivedAt == nil, !isSnoozed(thread) else { continue }
+            guard thread.archivedAt == nil, !isSnoozed(thread), !isSettled(thread) else { continue }
             guard let phase = T3AgentAwareness.phase(for: thread) else { continue }
             rows.append(
                 ThreadRow(
@@ -573,6 +573,17 @@ class T3SessionsManager: ObservableObject {
         case .completed: return Defaults[.t3NotifyCompleted]
         case .failed: return Defaults[.t3NotifyFailed]
         case .starting, .running: return false
+        }
+    }
+
+    /// A thread the user has settled (moved out of the active inbox — T3's
+    /// collapsed "Settled" section). settledOverride is the manual override;
+    /// otherwise a settledAt timestamp means settled.
+    private func isSettled(_ thread: T3ThreadShell) -> Bool {
+        switch thread.settledOverride {
+        case "settled": return true
+        case "active": return false
+        default: return thread.settledAt != nil
         }
     }
 
