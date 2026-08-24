@@ -1,0 +1,118 @@
+//
+//  T3DesktopControl.swift
+//  boringNotch
+//
+//  Navigates the T3 Code desktop app to a specific thread. The app ships no
+//  deep-link handling (t3code:// URLs are dropped), but its Electron build
+//  leaves DevTools arguments enabled — so when it runs with
+//  --remote-debugging-port we can ask its renderer to navigate over CDP.
+//  boring.notch launches it with the flag when it isn't running; an already-
+//  running instance without the flag needs one relaunch (settings button).
+//
+
+import AppKit
+import Foundation
+
+enum T3DesktopControl {
+    static let debugPort = 9223
+
+    private static let appCandidates = [
+        "/Applications/T3 Code.app",
+        "/Applications/T3 Code (Nightly).app",
+    ]
+
+    static var installedAppURL: URL? {
+        for path in appCandidates where FileManager.default.fileExists(atPath: path) {
+            return URL(fileURLWithPath: path)
+        }
+        return nil
+    }
+
+    static func runningApp() -> NSRunningApplication? {
+        guard let appURL = installedAppURL,
+              let bundleId = Bundle(url: appURL)?.bundleIdentifier
+        else { return nil }
+        return NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first
+    }
+
+    static func activate() {
+        runningApp()?.activate()
+    }
+
+    /// True when the app is up with its CDP control channel listening.
+    static func isControlAvailable() async -> Bool {
+        (try? await debugTargets()) != nil
+    }
+
+    /// Points the app's main window at the thread route. Returns false when
+    /// the control channel is unavailable or no app window target exists.
+    static func navigate(environmentId: String, threadId: String) async -> Bool {
+        guard let targets = try? await debugTargets(),
+              let target = targets.first(where: { $0.url.hasPrefix("t3code://app") }),
+              let wsURL = URL(string: target.webSocketDebuggerUrl)
+        else { return false }
+
+        let task = URLSession.shared.webSocketTask(with: wsURL)
+        task.resume()
+        defer { task.cancel(with: .normalClosure, reason: nil) }
+
+        let command = """
+            {"id":1,"method":"Page.navigate","params":{"url":"t3code://app/\(environmentId)/\(threadId)"}}
+            """
+        do {
+            try await task.send(.string(command))
+            _ = try await task.receive()
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Launches the desktop app with the control flag and waits for the
+    /// channel to come up. Only call when the app is not already running.
+    static func launchWithControl() async -> Bool {
+        guard let appURL = installedAppURL else { return false }
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.arguments = ["--remote-debugging-port=\(debugPort)"]
+        guard (try? await NSWorkspace.shared.openApplication(at: appURL, configuration: configuration)) != nil else {
+            return false
+        }
+        for _ in 0..<30 {
+            try? await Task.sleep(for: .milliseconds(500))
+            if await isControlAvailable() { return true }
+        }
+        return false
+    }
+
+    /// Gracefully quits a running instance (so its server child shuts down
+    /// cleanly) and relaunches with the control flag.
+    static func relaunchWithControl() async -> Bool {
+        if let app = runningApp() {
+            app.terminate()
+            for _ in 0..<20 where !app.isTerminated {
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+            if !app.isTerminated {
+                return false
+            }
+            try? await Task.sleep(for: .seconds(1))
+        }
+        return await launchWithControl()
+    }
+
+    // MARK: - CDP plumbing
+
+    private struct DebugTarget: Decodable {
+        let type: String
+        let url: String
+        let webSocketDebuggerUrl: String
+    }
+
+    private static func debugTargets() async throws -> [DebugTarget] {
+        var request = URLRequest(url: URL(string: "http://127.0.0.1:\(debugPort)/json/list")!)
+        request.timeoutInterval = 1.5
+        let (data, _) = try await URLSession.shared.data(for: request)
+        return try JSONDecoder().decode([DebugTarget].self, from: data)
+            .filter { $0.type == "page" }
+    }
+}

@@ -115,6 +115,28 @@ struct T3SessionsSettings: View {
                 }
 
                 Section {
+                    Defaults.Toggle(key: .t3OpenInApp) {
+                        Text("Open sessions in the T3 Code app")
+                    }
+                    if manager.desktopNeedsRelaunch {
+                        HStack {
+                            Text("T3 Code is running without its control channel — sessions open in the browser until it's relaunched.")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                            Spacer()
+                            Button("Relaunch T3 Code") {
+                                manager.relaunchDesktopWithControl()
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Opening sessions")
+                } footer: {
+                    Text("In-app opening navigates the desktop app directly (boring.notch starts it with a local control channel). Turn this off to always use the web app in your browser. Relaunching quits T3 Code — pick a moment when no agent is mid-task.")
+                        .foregroundStyle(.secondary)
+                }
+
+                Section {
                     Defaults.Toggle(key: .t3StickyTab) {
                         Text("Keep T3 tab selected when the notch closes")
                     }

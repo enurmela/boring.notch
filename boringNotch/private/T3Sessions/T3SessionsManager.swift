@@ -26,6 +26,9 @@ extension Defaults.Keys {
     static let t3LiveActivity = Key<Bool>("t3LiveActivity", default: true)
     /// When the default browser last got a t3 web session via our pair link.
     static let t3BrowserPairedAt = Key<Date?>("t3BrowserPairedAt", default: nil)
+    /// Prefer navigating the T3 desktop app (via its CDP control channel)
+    /// over the web app when opening a thread.
+    static let t3OpenInApp = Key<Bool>("t3OpenInApp", default: true)
     /// Show the T3 sessions widget in place of the calendar on the home tab.
     static let t3ReplaceCalendar = Key<Bool>("t3ReplaceCalendar", default: false)
 }
@@ -418,11 +421,58 @@ class T3SessionsManager: ObservableObject {
         activeCount > 0 || waitingCount > 0 || recentlyCompletedCount > 0
     }
 
-    /// Opens this thread's exact chat in the T3 web app (served by the same
-    /// server, thread routes are `/{environmentId}/{threadId}`). The desktop
-    /// app can't be used for this: it registers the t3code:// scheme but drops
-    /// every incoming URL (no open-url handler), so deep links only focus it.
+    /// True when the desktop app is running but without its control channel,
+    /// so in-app thread opening needs one relaunch (settings button).
+    @Published private(set) var desktopNeedsRelaunch = false
+
+    /// Opens this thread's exact chat: preferably by navigating the T3
+    /// desktop app over its CDP control channel (the app ships no deep-link
+    /// handling of its own — t3code:// URLs are dropped), falling back to
+    /// the web app served by the same server (`/{environmentId}/{threadId}`).
     func openThread(_ row: ThreadRow) {
+        guard let env = row.environmentId else { return }
+
+        guard row.isLocalServer, Defaults[.t3OpenInApp],
+              T3DesktopControl.installedAppURL != nil
+        else {
+            openThreadInBrowser(row)
+            return
+        }
+
+        Task { @MainActor in
+            if await T3DesktopControl.navigate(environmentId: env, threadId: row.thread.id) {
+                desktopNeedsRelaunch = false
+                T3DesktopControl.activate()
+                return
+            }
+            if T3DesktopControl.runningApp() == nil {
+                // Not running: start it with the control flag, then navigate.
+                if await T3DesktopControl.launchWithControl(),
+                   await T3DesktopControl.navigate(environmentId: env, threadId: row.thread.id)
+                {
+                    desktopNeedsRelaunch = false
+                }
+                T3DesktopControl.activate()
+                return
+            }
+            // Running without the flag: can't navigate it this launch.
+            desktopNeedsRelaunch = true
+            openThreadInBrowser(row)
+        }
+    }
+
+    /// Relaunches the desktop app with the control channel (settings button —
+    /// quits the app, so the user picks a moment when no agent is mid-turn).
+    func relaunchDesktopWithControl() {
+        Task { @MainActor in
+            if await T3DesktopControl.relaunchWithControl() {
+                desktopNeedsRelaunch = false
+            }
+            refreshNow()
+        }
+    }
+
+    private func openThreadInBrowser(_ row: ThreadRow) {
         guard let env = row.environmentId,
               let threadURL = URL(string: "\(row.serverOrigin.absoluteString)/\(env)/\(row.thread.id)")
         else { return }
