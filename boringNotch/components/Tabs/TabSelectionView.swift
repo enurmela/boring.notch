@@ -5,6 +5,7 @@
 //  Created by Hugo Persson on 2024-08-25.
 //
 
+import Defaults
 import SwiftUI
 
 struct TabModel: Identifiable {
@@ -19,12 +20,18 @@ let tabs = [
     TabModel(label: "Shelf", icon: "tray.fill", view: .shelf)
 ]
 
+let t3SessionsTab = TabModel(label: "T3", icon: "sparkles.rectangle.stack.fill", view: .t3Sessions)
+
 struct TabSelectionView: View {
     @ObservedObject var coordinator = BoringViewCoordinator.shared
+    @Default(.enableT3Sessions) var enableT3Sessions
     @Namespace var animation
+    var availableTabs: [TabModel] {
+        enableT3Sessions ? tabs + [t3SessionsTab] : tabs
+    }
     var body: some View {
         HStack(spacing: 0) {
-            ForEach(tabs) { tab in
+            ForEach(availableTabs) { tab in
                     TabButton(label: tab.label, icon: tab.icon, selected: coordinator.currentView == tab.view) {
                         withAnimation(.smooth) {
                             coordinator.currentView = tab.view

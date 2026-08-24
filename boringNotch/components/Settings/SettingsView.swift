@@ -54,6 +54,9 @@ struct SettingsView: View {
                 NavigationLink(value: "Shortcuts") {
                     Label("Shortcuts", systemImage: "keyboard")
                 }
+                NavigationLink(value: "T3 Code") {
+                    Label("T3 Code", systemImage: "sparkles.rectangle.stack")
+                }
                 // NavigationLink(value: "Extensions") {
                 //     Label("Extensions", systemImage: "puzzlepiece.extension")
                 // }
@@ -87,6 +90,8 @@ struct SettingsView: View {
                     Shelf()
                 case "Shortcuts":
                     Shortcuts()
+                case "T3 Code":
+                    T3SessionsSettings()
                 case "Extensions":
                     GeneralSettings()
                 case "Advanced":
