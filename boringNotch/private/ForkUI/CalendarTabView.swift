@@ -2,9 +2,9 @@
 //  CalendarTabView.swift
 //  boringNotch
 //
-//  Fork feature: a dedicated full-width calendar tab. Reuses the home-slot
-//  calendar's building blocks (WheelPicker, EventListView, CalendarManager)
-//  without its 215pt sidebar constraints.
+//  Fork feature: a dedicated full-width calendar tab. Weekly Mon–Sun strip
+//  with chevron week paging over the day's events; reuses the home-slot
+//  calendar's EventListView/CalendarManager.
 //
 
 import Defaults
@@ -21,16 +21,20 @@ struct CalendarTabView: View {
     @State private var selectedDate = Date()
 
     var body: some View {
-        HStack(alignment: .top, spacing: 16) {
+        HStack(alignment: .top, spacing: 18) {
             // Left rail: selected date at a glance + jump-to-today.
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 0) {
                 Text(selectedDate.formatted(.dateTime.weekday(.wide)))
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundColor(Color(white: 0.65))
                 Text("\(Calendar.current.component(.day, from: selectedDate))")
-                    .font(.system(size: 34, weight: .semibold, design: .rounded))
+                    .font(.system(size: 52, weight: .bold, design: .rounded))
                     .foregroundColor(.white)
-                Text(selectedDate.formatted(.dateTime.month(.wide).year()))
+                    .padding(.vertical, -4)
+                Text(selectedDate.formatted(.dateTime.month(.wide)))
+                    .font(.subheadline)
+                    .foregroundColor(.white.opacity(0.85))
+                Text(selectedDate.formatted(.dateTime.year()))
                     .font(.caption)
                     .foregroundColor(Color(white: 0.65))
                 Spacer(minLength: 0)
@@ -43,28 +47,11 @@ struct CalendarTabView: View {
                     .tint(.gray)
                 }
             }
-            .frame(width: 90, alignment: .leading)
+            .frame(width: 100, alignment: .leading)
 
-            // Right side: full-width date wheel over the day's events.
-            VStack(spacing: 2) {
-                ZStack(alignment: .top) {
-                    WheelPicker(
-                        selectedDate: $selectedDate,
-                        config: Config(past: 14, future: 30, offset: 5)
-                    )
-                    HStack(alignment: .top) {
-                        LinearGradient(
-                            colors: [Color.black, .clear], startPoint: .leading, endPoint: .trailing
-                        )
-                        .frame(width: 24)
-                        Spacer()
-                        LinearGradient(
-                            colors: [.clear, Color.black], startPoint: .leading, endPoint: .trailing
-                        )
-                        .frame(width: 24)
-                    }
-                }
-                .frame(height: 50)
+            // Right side: Mon–Sun week strip over the day's events.
+            VStack(spacing: 4) {
+                WeekStrip(selectedDate: $selectedDate)
 
                 let filteredEvents = EventListView.filteredEvents(events: calendarManager.events)
                 if filteredEvents.isEmpty {
@@ -94,5 +81,89 @@ struct CalendarTabView: View {
                 selectedDate = Date.now
             }
         }
+    }
+}
+
+/// One week, Monday through Sunday, with chevrons to page between weeks.
+struct WeekStrip: View {
+    @Binding var selectedDate: Date
+    @State private var haptics = false
+
+    /// ISO calendar: weeks start on Monday regardless of locale setting.
+    private var calendar: Calendar {
+        var cal = Calendar(identifier: .iso8601)
+        cal.timeZone = .current
+        return cal
+    }
+
+    private var weekDays: [Date] {
+        guard
+            let start = calendar.dateInterval(of: .weekOfYear, for: selectedDate)?.start
+        else { return [] }
+        return (0..<7).compactMap { calendar.date(byAdding: .day, value: $0, to: start) }
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            chevron("chevron.left", days: -7)
+
+            HStack(spacing: 0) {
+                ForEach(weekDays, id: \.self) { day in
+                    dayCell(day)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+
+            chevron("chevron.right", days: 7)
+        }
+        .sensoryFeedback(.alignment, trigger: haptics)
+        .frame(height: 52)
+    }
+
+    private func chevron(_ symbol: String, days: Int) -> some View {
+        Button {
+            if let date = calendar.date(byAdding: .day, value: days, to: selectedDate) {
+                withAnimation { selectedDate = date }
+            }
+        } label: {
+            Image(systemName: symbol)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(Color(white: 0.65))
+                .frame(width: 20, height: 40)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    private func dayCell(_ day: Date) -> some View {
+        let isSelected = calendar.isDate(day, inSameDayAs: selectedDate)
+        let isToday = calendar.isDateInToday(day)
+        return Button {
+            selectedDate = day
+            if Defaults[.enableHaptics] {
+                haptics.toggle()
+            }
+        } label: {
+            VStack(spacing: 6) {
+                Text(day.formatted(.dateTime.weekday(.abbreviated)))
+                    .font(.caption)
+                    .foregroundColor(isSelected ? .white : Color(white: 0.65))
+                ZStack {
+                    Circle()
+                        .fill(isToday ? Color.effectiveAccent : .clear)
+                        .frame(width: 22, height: 22)
+                    Text("\(calendar.component(.day, from: day))")
+                        .font(.body)
+                        .fontWeight(.medium)
+                        .foregroundColor(isSelected ? .white : Color(white: isToday ? 0.9 : 0.65))
+                }
+            }
+            .padding(.vertical, 4)
+            .padding(.horizontal, 2)
+            .background(isSelected ? Color.effectiveAccentBackground : Color.clear)
+            .cornerRadius(8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PlainButtonStyle())
     }
 }

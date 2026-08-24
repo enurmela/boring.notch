@@ -30,6 +30,9 @@ struct SettingsView: View {
                 NavigationLink(value: "General") {
                     Label("General", systemImage: "gear")
                 }
+                NavigationLink(value: "Home") {
+                    Label("Home", systemImage: "house")
+                }
                 NavigationLink(value: "Appearance") {
                     Label("Appearance", systemImage: "eye")
                 }
@@ -80,6 +83,8 @@ struct SettingsView: View {
                 switch selectedTab {
                 case "General":
                     GeneralSettings()
+                case "Home":
+                    HomeSettings()
                 case "Appearance":
                     Appearance()
                 case "Media":
@@ -725,11 +730,12 @@ struct CalendarSettings: View {
 
     var body: some View {
         Form {
-            Defaults.Toggle(key: .showCalendar) {
-                Text("Show calendar on the Home tab")
-            }
             Defaults.Toggle(key: .calendarTab) {
                 Text("Show a dedicated Calendar tab")
+            }
+            LabeledContent("Calendar on the Home tab") {
+                Text("Settings → Home")
+                    .foregroundStyle(.secondary)
             }
             Defaults.Toggle(key: .hideCompletedReminders) {
                 Text("Hide completed reminders")

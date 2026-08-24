@@ -118,13 +118,17 @@ struct T3SessionsSettings: View {
                     Defaults.Toggle(key: .t3StickyTab) {
                         Text("Keep T3 tab selected when the notch closes")
                     }
-                    Defaults.Toggle(key: .t3ReplaceCalendar) {
-                        Text("Show T3 sessions instead of the calendar on Home")
+                    Defaults.Toggle(key: .t3LiveActivity) {
+                        Text("Live status in the closed notch")
+                    }
+                    LabeledContent("T3 sessions on the Home tab") {
+                        Text("Settings → Home")
+                            .foregroundStyle(.secondary)
                     }
                 } header: {
                     Text("Notch")
                 } footer: {
-                    Text("Clicking a session anywhere opens its chat in T3 Code.")
+                    Text("Live status shows while agents run, wait for you, or just finished (music playback takes priority). Clicking a session anywhere opens its chat in T3 Code.")
                         .foregroundStyle(.secondary)
                 }
 

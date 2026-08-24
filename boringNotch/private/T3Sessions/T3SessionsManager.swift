@@ -22,6 +22,8 @@ extension Defaults.Keys {
     static let t3NotifyFailed = Key<Bool>("t3NotifyFailed", default: true)
     /// Keep the T3 tab selected across notch close/reopen.
     static let t3StickyTab = Key<Bool>("t3StickyTab", default: true)
+    /// Music-style live status in the closed notch while agents are busy.
+    static let t3LiveActivity = Key<Bool>("t3LiveActivity", default: true)
     /// Show the T3 sessions widget in place of the calendar on the home tab.
     static let t3ReplaceCalendar = Key<Bool>("t3ReplaceCalendar", default: false)
 }
@@ -370,6 +372,34 @@ class T3SessionsManager: ObservableObject {
     /// All threads across servers, most recent first (home-widget feed).
     var recentRows: [ThreadRow] {
         sections.flatMap(\.rows).sorted { $0.thread.updatedAt > $1.thread.updatedAt }
+    }
+
+    // MARK: - Live-activity counts (closed notch)
+
+    var activeCount: Int {
+        sections.flatMap(\.rows).filter { $0.phase == .running || $0.phase == .starting }.count
+    }
+
+    var waitingCount: Int {
+        sections.flatMap(\.rows)
+            .filter { $0.phase == .waitingForApproval || $0.phase == .waitingForInput }
+            .count
+    }
+
+    /// Threads that completed within the last 15 minutes — "just finished".
+    var recentlyCompletedCount: Int {
+        let cutoff = Date().addingTimeInterval(-15 * 60)
+        return sections.flatMap(\.rows).filter { row in
+            guard row.phase == .completed else { return false }
+            let stamp = row.thread.latestTurn?.completedAt ?? row.thread.updatedAt
+            guard let date = T3ISODate.parse(stamp) else { return false }
+            return date > cutoff
+        }.count
+    }
+
+    /// Whether the closed-notch live activity has anything worth showing.
+    var hasLiveActivity: Bool {
+        activeCount > 0 || waitingCount > 0 || recentlyCompletedCount > 0
     }
 
     /// Opens this thread's chat in T3 Code: deep link into the desktop app
