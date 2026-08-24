@@ -44,8 +44,12 @@ enum T3DesktopControl {
         (try? await debugTargets()) != nil
     }
 
-    /// Points the app's main window at the thread route. Returns false when
-    /// the control channel is unavailable or no app window target exists.
+    /// Points the app's main window at the thread route. The desktop
+    /// renderer routes in the URL HASH (`#/{env}/{thread}` — the pathname is
+    /// only the restored initial URL), so this sets location.hash for an
+    /// instant in-app navigation; a full Page.navigate reloads and loses to
+    /// the app's own state restore. Returns false when the control channel
+    /// is unavailable or no app window target exists.
     static func navigate(environmentId: String, threadId: String) async -> Bool {
         guard let targets = try? await debugTargets(),
               let target = targets.first(where: { $0.url.hasPrefix("t3code://app") }),
@@ -57,7 +61,7 @@ enum T3DesktopControl {
         defer { task.cancel(with: .normalClosure, reason: nil) }
 
         let command = """
-            {"id":1,"method":"Page.navigate","params":{"url":"t3code://app/\(environmentId)/\(threadId)"}}
+            {"id":1,"method":"Runtime.evaluate","params":{"expression":"location.hash = '#/\(environmentId)/\(threadId)'"}}
             """
         do {
             try await task.send(.string(command))

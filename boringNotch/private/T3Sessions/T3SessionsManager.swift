@@ -291,6 +291,14 @@ class T3SessionsManager: ObservableObject {
             break
         }
 
+        // Surface the relaunch hint proactively: desktop running without its
+        // control channel means in-app opening can't work this launch.
+        if Defaults[.t3OpenInApp], T3DesktopControl.runningApp() != nil {
+            desktopNeedsRelaunch = !(await T3DesktopControl.isControlAvailable())
+        } else {
+            desktopNeedsRelaunch = false
+        }
+
         var newSections = [localSection]
         newSections.append(contentsOf: remoteResults)
 
