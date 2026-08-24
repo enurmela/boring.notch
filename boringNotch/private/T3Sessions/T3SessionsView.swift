@@ -111,11 +111,20 @@ struct T3SessionsView: View {
                 showsSettings: true
             )
         case .installedNotRunning(let build):
-            emptyState(
-                icon: "power",
-                title: "T3 Code (\(build)) isn't running",
-                subtitle: "Launch the app and sessions will show up here."
-            )
+            VStack(spacing: 6) {
+                T3LogoView(size: 28)
+                    .opacity(0.8)
+                Text("T3 Code (\(build)) isn't running")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                Button("Launch T3 Code") {
+                    manager.launchDesktop()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .tint(.gray)
+            }
+            .padding(.horizontal, 24)
         case .unpaired:
             emptyState(
                 icon: "link.badge.plus",

@@ -469,6 +469,18 @@ class T3SessionsManager: ObservableObject {
         }
     }
 
+    /// Launches the desktop app with its control channel (notch button for
+    /// the "isn't running" state; focuses the app if it's already up).
+    func launchDesktop() {
+        Task { @MainActor in
+            if T3DesktopControl.runningApp() == nil {
+                _ = await T3DesktopControl.launchWithControl()
+                refreshNow()
+            }
+            T3DesktopControl.activate()
+        }
+    }
+
     /// Relaunches the desktop app with the control channel (settings button —
     /// quits the app, so the user picks a moment when no agent is mid-turn).
     func relaunchDesktopWithControl() {

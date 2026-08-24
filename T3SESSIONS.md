@@ -55,6 +55,26 @@ fork with a stock release.
 - Phase transitions into actionable states raise a closed-notch notification via
   `BoringViewCoordinator.toggleExpandingView(type: .t3)`.
 
+## Launching T3 Code with the control channel
+
+Opening a session **in the desktop app** needs T3 Code running with
+`--remote-debugging-port=9223` (its Electron build has no deep-link handler;
+boring.notch navigates it over that local CDP channel by setting the
+renderer's `location.hash` — the desktop routes threads in the hash). Three
+ways it launches correctly:
+
+- Click a session in the notch while T3 isn't running — boring.notch launches
+  it with the flag (the T3 tab's "isn't running" state also has a Launch
+  button).
+- Use **/Applications/T3 Code Launcher.app** (created for this fork — an
+  AppleScript applet wearing the T3 icon) as the Dock / login item instead of
+  the real app.
+- After a plain Dock launch, use the "Relaunch T3 Code" button in
+  Settings → T3 Code.
+
+Launched any other way, session clicks fall back to the T3 web app in the
+browser.
+
 ## Keeping up with upstream
 
 `main` mirrors `upstream/main` (https://github.com/TheBoredTeam/boring.notch);
