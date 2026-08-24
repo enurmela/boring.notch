@@ -82,6 +82,9 @@ mangles them):
 | `boringNotch/components/Settings/SettingsView.swift` | settings nav link + pane case |
 | `boringNotch/boringNotchApp.swift` | start `T3SessionsManager` at launch |
 | `boringNotch/boringNotch.entitlements` | App Sandbox disabled (auto-pairing needs `~/.t3`) |
+| `boringNotch/components/Tabs/TabButton.swift` | draw the T3 glyph for the sentinel icon token |
+| `boringNotch/models/BoringViewModel.swift` | sticky T3 tab guard in `close()` |
+| `boringNotch/components/Notch/NotchHomeView.swift` | optional T3 widget in the calendar slot |
 
 The Swift compiler enforces most of these: `NotchViews` and `SneakContentType`
 switches are exhaustive, so a lost edit shows up as a build error, not silent

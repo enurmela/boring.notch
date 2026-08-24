@@ -15,9 +15,15 @@ struct TabButton: View {
     
     var body: some View {
         Button(action: onClick) {
-            Image(systemName: icon)
-                .padding(.horizontal, 15)
-                .contentShape(Capsule())
+            Group {
+                if icon == T3Branding.tabIconToken {
+                    T3GlyphView(size: 14)
+                } else {
+                    Image(systemName: icon)
+                }
+            }
+            .padding(.horizontal, 15)
+            .contentShape(Capsule())
         }
         .buttonStyle(PlainButtonStyle())
     }

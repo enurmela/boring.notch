@@ -13,6 +13,10 @@ import SwiftUI
 enum T3Branding {
     static let fallbackSymbol = "sparkles.rectangle.stack"
 
+    /// Sentinel `TabModel.icon` value telling TabButton to draw the T3 glyph
+    /// instead of an SF Symbol.
+    static let tabIconToken = "t3.glyph"
+
     static let appIcon: NSImage? = {
         let candidates = [
             "/Applications/T3 Code.app",

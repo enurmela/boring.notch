@@ -44,7 +44,12 @@ struct T3SessionsView: View {
                         }
                     } else {
                         ForEach(section.rows) { row in
-                            T3ThreadRowView(row: row)
+                            Button {
+                                T3SessionsManager.shared.openThread(row)
+                            } label: {
+                                T3ThreadRowView(row: row)
+                            }
+                            .buttonStyle(PlainButtonStyle())
                         }
                     }
                 }

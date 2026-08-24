@@ -20,6 +20,10 @@ extension Defaults.Keys {
     static let t3NotifyInput = Key<Bool>("t3NotifyInput", default: true)
     static let t3NotifyCompleted = Key<Bool>("t3NotifyCompleted", default: true)
     static let t3NotifyFailed = Key<Bool>("t3NotifyFailed", default: true)
+    /// Keep the T3 tab selected across notch close/reopen.
+    static let t3StickyTab = Key<Bool>("t3StickyTab", default: true)
+    /// Show the T3 sessions widget in place of the calendar on the home tab.
+    static let t3ReplaceCalendar = Key<Bool>("t3ReplaceCalendar", default: false)
 }
 
 @MainActor
@@ -49,6 +53,7 @@ class T3SessionsManager: ObservableObject {
         let projectTitle: String
         let phase: T3AwarenessPhase
         let detail: String?
+        let environmentId: String?
         var id: String { thread.id }
     }
 
@@ -325,7 +330,7 @@ class T3SessionsManager: ObservableObject {
             lastError = nil
             return section(
                 .connected(label: descriptor.label, serverVersion: descriptor.serverVersion),
-                rows: rows(from: shell)
+                rows: rows(from: shell, environmentId: descriptor.environmentId)
             )
         } catch let error as T3ServerError where error.statusCode == 401 {
             return section(.tokenExpired(serverVersion: descriptor.serverVersion))
@@ -335,7 +340,7 @@ class T3SessionsManager: ObservableObject {
         }
     }
 
-    private func rows(from shell: T3ShellSnapshot) -> [ThreadRow] {
+    private func rows(from shell: T3ShellSnapshot, environmentId: String?) -> [ThreadRow] {
         let projectTitles = Dictionary(
             shell.projects.map { ($0.id, $0.title) },
             uniquingKeysWith: { first, _ in first }
@@ -350,18 +355,35 @@ class T3SessionsManager: ObservableObject {
                     thread: thread,
                     projectTitle: projectTitles[thread.projectId] ?? "Unknown project",
                     phase: phase,
-                    detail: T3AgentAwareness.detail(for: phase, thread: thread)
+                    detail: T3AgentAwareness.detail(for: phase, thread: thread),
+                    environmentId: environmentId
                 )
             )
         }
 
-        rows.sort { lhs, rhs in
-            if lhs.phase.isActionable != rhs.phase.isActionable {
-                return lhs.phase.isActionable
-            }
-            return lhs.thread.updatedAt > rhs.thread.updatedAt
-        }
+        // Most recently active first, whatever the phase — a thread that just
+        // finished belongs above one that has been running for an hour.
+        rows.sort { $0.thread.updatedAt > $1.thread.updatedAt }
         return rows
+    }
+
+    /// All threads across servers, most recent first (home-widget feed).
+    var recentRows: [ThreadRow] {
+        sections.flatMap(\.rows).sorted { $0.thread.updatedAt > $1.thread.updatedAt }
+    }
+
+    /// Opens this thread's chat in T3 Code: deep link into the desktop app
+    /// when a build is installed, the local web app in the browser otherwise.
+    func openThread(_ row: ThreadRow) {
+        guard let env = row.environmentId?.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              let thread = row.thread.id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+        else { return }
+        let url: URL? = Self.detectInstalledBuild() != nil
+            ? URL(string: "t3code://threads/\(env)/\(thread)")
+            : URL(string: "http://127.0.0.1:\(Defaults[.t3ServerPort])/threads/\(env)/\(thread)")
+        if let url {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     // MARK: - Notifications

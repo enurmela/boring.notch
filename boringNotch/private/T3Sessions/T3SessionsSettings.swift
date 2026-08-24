@@ -115,6 +115,20 @@ struct T3SessionsSettings: View {
                 }
 
                 Section {
+                    Defaults.Toggle(key: .t3StickyTab) {
+                        Text("Keep T3 tab selected when the notch closes")
+                    }
+                    Defaults.Toggle(key: .t3ReplaceCalendar) {
+                        Text("Show T3 sessions instead of the calendar on Home")
+                    }
+                } header: {
+                    Text("Notch")
+                } footer: {
+                    Text("Clicking a session anywhere opens its chat in T3 Code.")
+                        .foregroundStyle(.secondary)
+                }
+
+                Section {
                     Defaults.Toggle(key: .t3NotifyApproval) {
                         Text("Approval needed")
                     }

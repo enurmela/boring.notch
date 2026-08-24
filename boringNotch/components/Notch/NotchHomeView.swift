@@ -443,7 +443,11 @@ struct NotchHomeView: View {
         HStack(alignment: .top, spacing: (shouldShowCamera && Defaults[.showCalendar]) ? 10 : 15) {
             MusicPlayerView(albumArtNamespace: albumArtNamespace)
 
-            if Defaults[.showCalendar] {
+            if Defaults[.enableT3Sessions] && Defaults[.t3ReplaceCalendar] {
+                T3HomeWidget()
+                    .frame(width: shouldShowCamera ? 170 : 215)
+                    .transition(.opacity)
+            } else if Defaults[.showCalendar] {
                 CalendarView()
                     .frame(width: shouldShowCamera ? 170 : 215)
                     .onHover { isHovering in

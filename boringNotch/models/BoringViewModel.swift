@@ -213,6 +213,8 @@ class BoringViewModel: NSObject, ObservableObject {
         // Otherwise, if the user has not enabled openLastShelfByDefault, set the view to home
     if !ShelfStateViewModel.shared.isEmpty && Defaults[.openShelfByDefault] {
             coordinator.currentView = .shelf
+        } else if coordinator.currentView == .t3Sessions && Defaults[.enableT3Sessions] && Defaults[.t3StickyTab] {
+            // Watching T3 sessions: stay on the tab across close/reopen.
         } else if !coordinator.openLastTabByDefault {
             coordinator.currentView = .home
         }

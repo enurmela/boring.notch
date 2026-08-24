@@ -20,7 +20,7 @@ let tabs = [
     TabModel(label: "Shelf", icon: "tray.fill", view: .shelf)
 ]
 
-let t3SessionsTab = TabModel(label: "T3", icon: "sparkles.rectangle.stack.fill", view: .t3Sessions)
+let t3SessionsTab = TabModel(label: "T3", icon: T3Branding.tabIconToken, view: .t3Sessions)
 
 struct TabSelectionView: View {
     @ObservedObject var coordinator = BoringViewCoordinator.shared
