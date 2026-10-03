@@ -4,7 +4,7 @@
 //
 //  Zero-click pairing with the LOCAL t3 server: mints a one-time pairing
 //  credential the same way `t3 pair` does — inserting a row into the server's
-//  own auth_pairing_links table (~/.t3/userdata/state.sqlite) — then runs the
+//  own auth_pairing_links table (statev2.sqlite, or legacy state.sqlite) — then runs the
 //  standard token exchange over HTTP. The server honors externally inserted
 //  rows: its consume path falls through to SQL on an in-memory miss.
 //
@@ -13,6 +13,7 @@
 //
 
 import Foundation
+import Security
 import SQLite3
 
 enum T3AutoPair {
@@ -21,12 +22,13 @@ enum T3AutoPair {
     private static let alphabet = Array("23456789ABCDEFGHJKLMNPQRSTUVWXYZ")
     private static let tokenLength = 12
 
-    static var databasePath: String {
-        (realHomeDirectory() as NSString).appendingPathComponent(".t3/userdata/state.sqlite")
+    static func databasePath(protocolVersion: Int?) -> String {
+        let filename = (protocolVersion ?? 1) >= 2 ? "statev2.sqlite" : "state.sqlite"
+        return (realHomeDirectory() as NSString).appendingPathComponent(".t3/userdata/\(filename)")
     }
 
     static var isAvailable: Bool {
-        FileManager.default.isWritableFile(atPath: databasePath)
+        [1, 2].contains { FileManager.default.isWritableFile(atPath: databasePath(protocolVersion: $0)) }
     }
 
     enum AutoPairError: Error {
@@ -37,8 +39,11 @@ enum T3AutoPair {
 
     /// Inserts a fresh short-lived pairing credential for the local server and
     /// returns it, ready for the /oauth/token exchange.
-    static func mintCredential() throws -> String {
-        guard isAvailable else { throw AutoPairError.databaseUnavailable }
+    static func mintCredential(protocolVersion: Int?) throws -> String {
+        let databasePath = databasePath(protocolVersion: protocolVersion)
+        guard FileManager.default.isWritableFile(atPath: databasePath) else {
+            throw AutoPairError.databaseUnavailable
+        }
         let credential = try generateToken()
 
         var db: OpaquePointer?

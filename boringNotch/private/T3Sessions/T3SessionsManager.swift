@@ -12,6 +12,8 @@ import Defaults
 import Foundation
 import SwiftUI
 
+extension T3RemoteServer: Defaults.Serializable {}
+
 extension Defaults.Keys {
     static let enableT3Sessions = Key<Bool>("enableT3Sessions", default: false)
     static let t3ServerPort = Key<Int>("t3ServerPort", default: 3773)
@@ -66,7 +68,10 @@ class T3SessionsManager: ObservableObject {
         let environmentId: String?
         let serverOrigin: URL
         let isLocalServer: Bool
+        let protocolVersion: Int?
+        let serverID: String
         var id: String { thread.id }
+        var orderingID: String { "\(serverID)/\(thread.id)" }
     }
 
     /// One connected-or-configured server and its current threads. The local
@@ -118,6 +123,7 @@ class T3SessionsManager: ObservableObject {
     /// so a newly added remote doesn't fire a notification burst.
     private var knownPhases: [String: T3AwarenessPhase] = [:]
     private var baselinedServers: Set<String> = []
+    private var sessionOrdering = T3SessionOrdering()
 
     private static let appBundleCandidates: [(path: String, build: String)] = [
         ("/Applications/T3 Code.app", "release"),
@@ -171,6 +177,7 @@ class T3SessionsManager: ObservableObject {
         sections = []
         knownPhases = [:]
         baselinedServers = []
+        sessionOrdering = T3SessionOrdering()
     }
 
     func refreshNow() {
@@ -189,8 +196,9 @@ class T3SessionsManager: ObservableObject {
         else { return false }
         lastAutoPairAttempt = Date()
         do {
-            let credential = try T3AutoPair.mintCredential()
             let client = T3Client(port: Defaults[.t3ServerPort])
+            let descriptor = try await client.fetchDescriptor()
+            let credential = try T3AutoPair.mintCredential(protocolVersion: descriptor.orchestrationProtocolVersion)
             let result = try await client.exchangeToken(pairingCredential: credential)
             T3Auth.store(result: result, account: T3Auth.account(forServer: nil))
             lastError = nil
@@ -254,7 +262,7 @@ class T3SessionsManager: ObservableObject {
     private func pollAll() async -> Bool {
         let remotes = Defaults[.t3RemoteServers]
 
-        func pollLocal() async -> ServerSection {
+        @Sendable func pollLocal() async -> ServerSection {
             await pollServer(
                 sectionID: Self.localServerID,
                 name: "This Mac",
@@ -308,6 +316,19 @@ class T3SessionsManager: ObservableObject {
         var newSections = [localSection]
         newSections.append(contentsOf: remoteResults)
 
+        // Seed by recency once. Later polling order and updatedAt changes
+        // cannot move working sessions; completed turns alone promote them.
+        let allRows = newSections.flatMap(\.rows).sorted { $0.thread.updatedAt > $1.thread.updatedAt }
+        sessionOrdering.update(allRows.map { row in
+            T3SessionOrdering.Entry(
+                id: row.orderingID, phase: row.phase,
+                completedAt: row.thread.latestRunCompletedAt ?? row.thread.latestTurn?.completedAt
+            )
+        })
+        for index in newSections.indices {
+            newSections[index].rows = sessionOrdering.sorted(newSections[index].rows, id: \.orderingID)
+        }
+
         withAnimation(.smooth) {
             sections = newSections
         }
@@ -349,7 +370,9 @@ class T3SessionsManager: ObservableObject {
         }
 
         do {
-            let shell = try await client.fetchShell(token: token.accessToken)
+            let shell = try await client.fetchShell(
+                token: token.accessToken, protocolVersion: descriptor.orchestrationProtocolVersion
+            )
             lastError = nil
             return section(
                 .connected(label: descriptor.label, serverVersion: descriptor.serverVersion),
@@ -357,7 +380,9 @@ class T3SessionsManager: ObservableObject {
                     from: shell,
                     environmentId: descriptor.environmentId,
                     serverOrigin: client.origin,
-                    isLocalServer: isLocal
+                    isLocalServer: isLocal,
+                    protocolVersion: descriptor.orchestrationProtocolVersion,
+                    serverID: sectionID
                 )
             )
         } catch let error as T3ServerError where error.statusCode == 401 {
@@ -372,7 +397,9 @@ class T3SessionsManager: ObservableObject {
         from shell: T3ShellSnapshot,
         environmentId: String?,
         serverOrigin: URL,
-        isLocalServer: Bool
+        isLocalServer: Bool,
+        protocolVersion: Int?,
+        serverID: String
     ) -> [ThreadRow] {
         let projectTitles = Dictionary(
             shell.projects.map { ($0.id, $0.title) },
@@ -381,7 +408,8 @@ class T3SessionsManager: ObservableObject {
 
         var rows: [ThreadRow] = []
         for thread in shell.threads {
-            guard thread.archivedAt == nil, !isSnoozed(thread), !isSettled(thread) else { continue }
+            guard thread.archivedAt == nil, thread.deletedAt == nil,
+                  !isSnoozed(thread), !isSettled(thread) else { continue }
             guard let phase = T3AgentAwareness.phase(for: thread) else { continue }
             rows.append(
                 ThreadRow(
@@ -391,20 +419,19 @@ class T3SessionsManager: ObservableObject {
                     detail: T3AgentAwareness.detail(for: phase, thread: thread),
                     environmentId: environmentId,
                     serverOrigin: serverOrigin,
-                    isLocalServer: isLocalServer
+                    isLocalServer: isLocalServer,
+                    protocolVersion: protocolVersion,
+                    serverID: serverID
                 )
             )
         }
 
-        // Most recently active first, whatever the phase — a thread that just
-        // finished belongs above one that has been running for an hour.
-        rows.sort { $0.thread.updatedAt > $1.thread.updatedAt }
         return rows
     }
 
-    /// All threads across servers, most recent first (home-widget feed).
+    /// Same stable order across servers for the compact home-widget feed.
     var recentRows: [ThreadRow] {
-        sections.flatMap(\.rows).sorted { $0.thread.updatedAt > $1.thread.updatedAt }
+        sessionOrdering.sorted(sections.flatMap(\.rows), id: \.orderingID)
     }
 
     // MARK: - Live-activity counts (closed notch)
@@ -424,7 +451,7 @@ class T3SessionsManager: ObservableObject {
         let cutoff = Date().addingTimeInterval(-15 * 60)
         return sections.flatMap(\.rows).filter { row in
             guard row.phase == .completed else { return false }
-            let stamp = row.thread.latestTurn?.completedAt ?? row.thread.updatedAt
+            let stamp = row.thread.completionTimestamp
             guard let date = T3ISODate.parse(stamp) else { return false }
             return date > cutoff
         }.count
@@ -461,7 +488,8 @@ class T3SessionsManager: ObservableObject {
         }
 
         Task { @MainActor in
-            if await T3DesktopControl.navigate(environmentId: env, threadId: row.thread.id) {
+            let route = T3ThreadRoute.path(environmentId: env, threadId: row.thread.id, protocolVersion: row.protocolVersion)
+            if await T3DesktopControl.navigate(route: route) {
                 desktopNeedsRelaunch = false
                 T3DesktopControl.activate()
                 return
@@ -469,7 +497,7 @@ class T3SessionsManager: ObservableObject {
             if T3DesktopControl.runningApp() == nil {
                 // Not running: start it with the control flag, then navigate.
                 if await T3DesktopControl.launchWithControl(),
-                   await T3DesktopControl.navigate(environmentId: env, threadId: row.thread.id)
+                   await T3DesktopControl.navigate(route: route)
                 {
                     desktopNeedsRelaunch = false
                 }
@@ -520,7 +548,9 @@ class T3SessionsManager: ObservableObject {
 
     private func openThreadInBrowser(_ row: ThreadRow) {
         guard let env = row.environmentId,
-              let threadURL = URL(string: "\(row.serverOrigin.absoluteString)/\(env)/\(row.thread.id)")
+              let threadURL = URL(string: T3ThreadRoute.path(
+                environmentId: env, threadId: row.thread.id, protocolVersion: row.protocolVersion
+              ), relativeTo: row.serverOrigin)?.absoluteURL
         else { return }
 
         // First open (or expired cookie): establish the browser session via
@@ -529,7 +559,7 @@ class T3SessionsManager: ObservableObject {
         // remote servers show their inline pairing gate on the thread URL,
         // which keeps the destination after a manual token paste.
         if row.isLocalServer, needsBrowserPairing,
-           let credential = try? T3AutoPair.mintCredential(),
+           let credential = try? T3AutoPair.mintCredential(protocolVersion: row.protocolVersion),
            let pairURL = URL(string: "\(row.serverOrigin.absoluteString)/pair#token=\(credential)")
         {
             NSWorkspace.shared.open(pairURL)
@@ -573,14 +603,15 @@ class T3SessionsManager: ObservableObject {
         for wanted in priority {
             guard isNotifyEnabled(for: wanted) else { continue }
             guard let hit = candidates.first(where: { candidate in
-                candidate.row.phase == wanted && knownPhases[candidate.key] != wanted
+                guard candidate.row.phase == wanted, knownPhases[candidate.key] != wanted else { return false }
+                // Skip old completed rows without masking a real completion
+                // later in this same snapshot.
+                if wanted == .completed {
+                    let previous = knownPhases[candidate.key]
+                    return previous == .running || previous == .starting
+                }
+                return true
             }) else { continue }
-            // "completed" only counts coming out of live work — a thread first
-            // seen as completed (e.g. server restart) shouldn't ping.
-            if wanted == .completed {
-                let previous = knownPhases[hit.key]
-                guard previous == .running || previous == .starting else { continue }
-            }
             latestAlert = NotchAlert(
                 threadTitle: hit.row.thread.title,
                 projectTitle: hit.row.projectTitle,

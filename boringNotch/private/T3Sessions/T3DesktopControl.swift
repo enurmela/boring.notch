@@ -22,6 +22,7 @@ enum T3DesktopControl {
     ]
 
     static var installedAppURL: URL? {
+        if let url = runningApp()?.bundleURL { return url }
         for path in appCandidates where FileManager.default.fileExists(atPath: path) {
             return URL(fileURLWithPath: path)
         }
@@ -29,10 +30,13 @@ enum T3DesktopControl {
     }
 
     static func runningApp() -> NSRunningApplication? {
-        guard let appURL = installedAppURL,
-              let bundleId = Bundle(url: appURL)?.bundleIdentifier
-        else { return nil }
-        return NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first
+        for path in appCandidates {
+            guard let bundleId = Bundle(path: path)?.bundleIdentifier else { continue }
+            if let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first {
+                return app
+            }
+        }
+        return nil
     }
 
     static func activate() {
@@ -45,12 +49,12 @@ enum T3DesktopControl {
     }
 
     /// Points the app's main window at the thread route. The desktop
-    /// renderer routes in the URL HASH (`#/{env}/{thread}` — the pathname is
+    /// renderer routes in the URL HASH (`#/threads/{env}/{thread}` in v2 — the pathname is
     /// only the restored initial URL), so this sets location.hash for an
     /// instant in-app navigation; a full Page.navigate reloads and loses to
     /// the app's own state restore. Returns false when the control channel
     /// is unavailable or no app window target exists.
-    static func navigate(environmentId: String, threadId: String) async -> Bool {
+    static func navigate(route: String) async -> Bool {
         guard let targets = try? await debugTargets(),
               let target = targets.first(where: { $0.url.hasPrefix("t3code://app") }),
               let wsURL = URL(string: target.webSocketDebuggerUrl)
@@ -60,13 +64,25 @@ enum T3DesktopControl {
         task.resume()
         defer { task.cancel(with: .normalClosure, reason: nil) }
 
-        let command = """
-            {"id":1,"method":"Runtime.evaluate","params":{"expression":"location.hash = '#/\(environmentId)/\(threadId)'"}}
-            """
         do {
-            try await task.send(.string(command))
-            _ = try await task.receive()
-            return true
+            let hashJSON = try JSONEncoder().encode("#\(route)")
+            let expression = "location.hash = \(String(decoding: hashJSON, as: UTF8.self))"
+            let command = try JSONSerialization.data(withJSONObject: [
+                "id": 1, "method": "Runtime.evaluate", "params": ["expression": expression],
+            ])
+            try await task.send(.string(String(decoding: command, as: UTF8.self)))
+            let message = try await task.receive()
+            let data: Data
+            switch message {
+            case .data(let value): data = value
+            case .string(let value): data = Data(value.utf8)
+            @unknown default: return false
+            }
+            guard let response = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  response["error"] == nil,
+                  let result = response["result"] as? [String: Any]
+            else { return false }
+            return result["exceptionDetails"] == nil
         } catch {
             return false
         }

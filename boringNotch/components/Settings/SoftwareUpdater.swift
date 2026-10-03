@@ -8,6 +8,11 @@
 import SwiftUI
 import Sparkle
 
+enum ForkUpdates {
+    static var isT3Fork: Bool { Bundle.main.object(forInfoDictionaryKey: "BNT3Fork") as? Bool == true }
+    static let repositoryURL = URL(string: "https://github.com/enurmela/boring.notch")!
+}
+
 final class CheckForUpdatesViewModel: ObservableObject {
     @Published var canCheckForUpdates = false
 
@@ -29,8 +34,12 @@ struct CheckForUpdatesView: View {
     }
     
     var body: some View {
-        Button("Check for Updates…", action: updater.checkForUpdates)
-            .disabled(!checkForUpdatesViewModel.canCheckForUpdates)
+        if ForkUpdates.isT3Fork {
+            Link("View Fork Updates…", destination: ForkUpdates.repositoryURL)
+        } else {
+            Button("Check for Updates…", action: updater.checkForUpdates)
+                .disabled(!checkForUpdatesViewModel.canCheckForUpdates)
+        }
     }
 }
 
@@ -48,16 +57,22 @@ struct UpdaterSettingsView: View {
     
     var body: some View {
         Section {
-            Toggle("Automatically check for updates", isOn: $automaticallyChecksForUpdates)
-                .onChange(of: automaticallyChecksForUpdates) { _, newValue in
-                    updater.automaticallyChecksForUpdates = newValue
-                }
+            if ForkUpdates.isT3Fork {
+                Text("This build includes the T3 Code integration. Install fork updates to keep it.")
+                    .foregroundStyle(.secondary)
+                Link("View fork updates", destination: ForkUpdates.repositoryURL)
+            } else {
+                Toggle("Automatically check for updates", isOn: $automaticallyChecksForUpdates)
+                    .onChange(of: automaticallyChecksForUpdates) { _, newValue in
+                        updater.automaticallyChecksForUpdates = newValue
+                    }
             
-            Toggle("Automatically download updates", isOn: $automaticallyDownloadsUpdates)
-                .disabled(!automaticallyChecksForUpdates)
-                .onChange(of: automaticallyDownloadsUpdates) { _, newValue in
-                    updater.automaticallyDownloadsUpdates = newValue
-                }
+                Toggle("Automatically download updates", isOn: $automaticallyDownloadsUpdates)
+                    .disabled(!automaticallyChecksForUpdates)
+                    .onChange(of: automaticallyDownloadsUpdates) { _, newValue in
+                        updater.automaticallyDownloadsUpdates = newValue
+                    }
+            }
         } header: {
             HStack {
                 Text("Software updates")
