@@ -62,8 +62,26 @@ enum T3AwarenessPhase: String {
 
 enum T3AgentAwareness {
     static func phase(for thread: T3ThreadShell) -> T3AwarenessPhase? {
-        if thread.hasPendingApprovals { return .waitingForApproval }
-        if thread.hasPendingUserInput { return .waitingForInput }
+        guard thread.lineage?.relationshipToParent != "subagent" else { return nil }
+        if let status = thread.status {
+            if let request = thread.pendingRuntimeRequest {
+                if request.kind == "user_input" { return .waitingForInput }
+                if request.kind != "auth_refresh" { return .waitingForApproval }
+            }
+            switch thread.activityRunStatus ?? status {
+            case "preparing", "starting": return .starting
+            case "running", "waiting": return .running
+            case "completed":
+                // Commands (e.g. dev servers) can outlive a finished turn.
+                // Subagents, monitors and unknown work still wake the agent.
+                return (thread.pendingBackgroundTasks ?? []).contains { $0.kind != "command" }
+                    ? .running : .completed
+            case "failed": return .failed
+            default: return nil
+            }
+        }
+        if thread.hasPendingApprovals == true { return .waitingForApproval }
+        if thread.hasPendingUserInput == true { return .waitingForInput }
         if thread.session?.status == "error" || thread.latestTurn?.state == "error" {
             return .failed
         }
@@ -85,9 +103,12 @@ enum T3AgentAwareness {
 
     static func detail(for phase: T3AwarenessPhase, thread: T3ThreadShell) -> String? {
         switch phase {
-        case .failed: return thread.session?.lastError
+        case .failed: return thread.lastError ?? thread.session?.lastError
         case .running:
             if let step = thread.planProgress?.step { return step }
+            if let task = thread.pendingBackgroundTasks?.first(where: { $0.kind != "command" }) {
+                return task.description ?? "Waiting for background work"
+            }
             if let provider = thread.session?.providerName { return "\(provider) is active" }
             return nil
         default: return nil

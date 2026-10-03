@@ -879,6 +879,15 @@ struct About: View {
                             showBuildNumber.toggle()
                         }
                     }
+                    if let revision = Bundle.main.object(forInfoDictionaryKey: "BNSourceRevision") as? String {
+                        HStack {
+                            Text("Fork revision")
+                            Spacer()
+                            Text(revision)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
+                    }
                 } header: {
                     Text("Version info")
                 }

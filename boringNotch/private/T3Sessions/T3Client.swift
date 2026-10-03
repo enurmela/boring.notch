@@ -36,8 +36,8 @@ struct T3Client {
         try await get("/.well-known/t3/environment", token: nil)
     }
 
-    func fetchShell(token: String) async throws -> T3ShellSnapshot {
-        try await get("/api/orchestration/shell", token: token)
+    func fetchShell(token: String, protocolVersion: Int? = nil) async throws -> T3ShellSnapshot {
+        try await get("/api/orchestration/shell", token: token, protocolVersion: protocolVersion)
     }
 
     /// RFC 8693 token exchange: pairing credential -> bearer access token.
@@ -65,10 +65,13 @@ struct T3Client {
         return try JSONDecoder().decode(T3AccessTokenResult.self, from: data)
     }
 
-    private func get<T: Decodable>(_ path: String, token: String?) async throws -> T {
+    private func get<T: Decodable>(_ path: String, token: String?, protocolVersion: Int? = nil) async throws -> T {
         var request = URLRequest(url: URL(string: path, relativeTo: origin)!)
         if let token {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        if let protocolVersion {
+            request.setValue(String(protocolVersion), forHTTPHeaderField: "x-t3-orchestration-protocol")
         }
         let (data, response) = try await Self.session.data(for: request)
         try Self.ensureOK(response, data: data)
