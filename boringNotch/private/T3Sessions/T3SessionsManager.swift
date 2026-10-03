@@ -69,7 +69,9 @@ class T3SessionsManager: ObservableObject {
         let serverOrigin: URL
         let isLocalServer: Bool
         let protocolVersion: Int?
+        let serverID: String
         var id: String { thread.id }
+        var orderingID: String { "\(serverID)/\(thread.id)" }
     }
 
     /// One connected-or-configured server and its current threads. The local
@@ -121,6 +123,7 @@ class T3SessionsManager: ObservableObject {
     /// so a newly added remote doesn't fire a notification burst.
     private var knownPhases: [String: T3AwarenessPhase] = [:]
     private var baselinedServers: Set<String> = []
+    private var sessionOrdering = T3SessionOrdering()
 
     private static let appBundleCandidates: [(path: String, build: String)] = [
         ("/Applications/T3 Code.app", "release"),
@@ -174,6 +177,7 @@ class T3SessionsManager: ObservableObject {
         sections = []
         knownPhases = [:]
         baselinedServers = []
+        sessionOrdering = T3SessionOrdering()
     }
 
     func refreshNow() {
@@ -312,6 +316,19 @@ class T3SessionsManager: ObservableObject {
         var newSections = [localSection]
         newSections.append(contentsOf: remoteResults)
 
+        // Seed by recency once. Later polling order and updatedAt changes
+        // cannot move working sessions; completed turns alone promote them.
+        let allRows = newSections.flatMap(\.rows).sorted { $0.thread.updatedAt > $1.thread.updatedAt }
+        sessionOrdering.update(allRows.map { row in
+            T3SessionOrdering.Entry(
+                id: row.orderingID, phase: row.phase,
+                completedAt: row.thread.latestRunCompletedAt ?? row.thread.latestTurn?.completedAt
+            )
+        })
+        for index in newSections.indices {
+            newSections[index].rows = sessionOrdering.sorted(newSections[index].rows, id: \.orderingID)
+        }
+
         withAnimation(.smooth) {
             sections = newSections
         }
@@ -364,7 +381,8 @@ class T3SessionsManager: ObservableObject {
                     environmentId: descriptor.environmentId,
                     serverOrigin: client.origin,
                     isLocalServer: isLocal,
-                    protocolVersion: descriptor.orchestrationProtocolVersion
+                    protocolVersion: descriptor.orchestrationProtocolVersion,
+                    serverID: sectionID
                 )
             )
         } catch let error as T3ServerError where error.statusCode == 401 {
@@ -380,7 +398,8 @@ class T3SessionsManager: ObservableObject {
         environmentId: String?,
         serverOrigin: URL,
         isLocalServer: Bool,
-        protocolVersion: Int?
+        protocolVersion: Int?,
+        serverID: String
     ) -> [ThreadRow] {
         let projectTitles = Dictionary(
             shell.projects.map { ($0.id, $0.title) },
@@ -401,20 +420,18 @@ class T3SessionsManager: ObservableObject {
                     environmentId: environmentId,
                     serverOrigin: serverOrigin,
                     isLocalServer: isLocalServer,
-                    protocolVersion: protocolVersion
+                    protocolVersion: protocolVersion,
+                    serverID: serverID
                 )
             )
         }
 
-        // Most recently active first, whatever the phase — a thread that just
-        // finished belongs above one that has been running for an hour.
-        rows.sort { $0.thread.updatedAt > $1.thread.updatedAt }
         return rows
     }
 
-    /// All threads across servers, most recent first (home-widget feed).
+    /// Same stable order across servers for the compact home-widget feed.
     var recentRows: [ThreadRow] {
-        sections.flatMap(\.rows).sorted { $0.thread.updatedAt > $1.thread.updatedAt }
+        sessionOrdering.sorted(sections.flatMap(\.rows), id: \.orderingID)
     }
 
     // MARK: - Live-activity counts (closed notch)

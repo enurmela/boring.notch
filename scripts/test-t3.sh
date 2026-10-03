@@ -5,6 +5,7 @@ mkdir -p build/T3Tests
 swiftc -parse-as-library \
   boringNotch/private/T3Sessions/T3Models.swift \
   boringNotch/private/T3Sessions/T3AgentAwareness.swift \
+  boringNotch/private/T3Sessions/T3SessionOrdering.swift \
   boringNotch/private/T3Sessions/T3ThreadRoute.swift \
   boringNotch/private/T3Sessions/T3Client.swift \
   boringNotch/private/T3Sessions/T3AutoPair.swift \

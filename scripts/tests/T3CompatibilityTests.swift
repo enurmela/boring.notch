@@ -70,8 +70,52 @@ struct T3CompatibilityTests {
         print("✓ T3 compatibility fixtures passed")
     }
 
+    static func orderingFixtures() throws {
+        typealias Entry = T3SessionOrdering.Entry
+        var ordering = T3SessionOrdering()
+        let a = Entry(id: "local/a", phase: .running, completedAt: nil)
+        let b = Entry(id: "local/b", phase: .starting, completedAt: nil)
+        let remote = Entry(id: "remote/a", phase: .running, completedAt: nil)
+        func ids(_ entries: [Entry]) -> [String] {
+            ordering.sorted(entries, id: \.id).map(\.id)
+        }
+        ordering.update([a, b, remote])
+        ordering.update([remote, b, a])
+        try expect(ids([remote, b, a]) == [a.id, b.id, remote.id], "Streaming cannot change session order")
+
+        let approval = Entry(id: a.id, phase: .waitingForApproval, completedAt: nil)
+        let input = Entry(id: b.id, phase: .waitingForInput, completedAt: nil)
+        ordering.update([input, approval, remote])
+        try expect(ids([input, approval, remote]) == [a.id, b.id, remote.id], "Input and approvals keep their places")
+
+        let finishedB = Entry(id: b.id, phase: .completed, completedAt: "2026-10-03T10:00:00Z")
+        ordering.update([remote, finishedB, a])
+        try expect(ids([a, finishedB, remote]) == [b.id, a.id, remote.id], "A finished session moves to the front")
+        let finishedA = Entry(id: a.id, phase: .completed, completedAt: "2026-10-03T10:01:00Z")
+        ordering.update([finishedA, remote, finishedB])
+        ordering.update([finishedB, remote, finishedA])
+        try expect(ids([finishedB, remote, finishedA]) == [a.id, b.id, remote.id], "Completed metadata updates do not reorder")
+
+        let nextCompletionB = Entry(id: b.id, phase: .completed, completedAt: "2026-10-03T10:02:00Z")
+        ordering.update([finishedA, remote, nextCompletionB])
+        try expect(ids([finishedA, remote, nextCompletionB]) == [b.id, a.id, remote.id], "A fast turn completed between polls still promotes")
+
+        let newSession = Entry(id: "local/new", phase: .running, completedAt: nil)
+        ordering.update([newSession, finishedA, nextCompletionB])
+        ordering.update([remote, newSession, nextCompletionB, finishedA])
+        try expect(ids([newSession, remote, finishedA, nextCompletionB]) == [b.id, a.id, remote.id, newSession.id],
+                   "New sessions append and reconnecting servers retain order")
+
+        let failed = Entry(id: remote.id, phase: .failed, completedAt: nil)
+        ordering.update([failed, nextCompletionB, finishedA, newSession])
+        try expect(ids([failed, newSession, finishedA, nextCompletionB]) == [b.id, a.id, remote.id, newSession.id],
+                   "Status changes other than completion do not reorder")
+        print("✓ Stable session ordering fixtures passed")
+    }
+
     static func main() async throws {
         try fixtures()
+        try orderingFixtures()
         if CommandLine.arguments.contains("--live") {
             let client = T3Client(port: 3773)
             let descriptor = try await client.fetchDescriptor()

@@ -76,6 +76,10 @@ to update; stock upstream releases would remove the T3 integration.
   completion pending while long-lived commands do not.
 - Phase transitions into actionable states raise a closed-notch notification via
   `BoringViewCoordinator.toggleExpandingView(type: .t3)`.
+- The session list and home widget keep a stable order during streaming, input
+  and approval changes. A session moves to the front only when a turn finishes;
+  new sessions append without displacing existing ones. Temporary disconnections
+  preserve the order until the integration is stopped or the app restarts.
 
 ## Launching T3 Code with the control channel
 
