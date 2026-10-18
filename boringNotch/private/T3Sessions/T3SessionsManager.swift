@@ -31,8 +31,8 @@ extension Defaults.Keys {
     static let t3LiveActivityIdle = Key<Bool>("t3LiveActivityIdle", default: true)
     /// When the default browser last got a t3 web session via our pair link.
     static let t3BrowserPairedAt = Key<Date?>("t3BrowserPairedAt", default: nil)
-    /// Prefer navigating the T3 desktop app (via its CDP control channel)
-    /// over the web app when opening a thread.
+    /// Prefer the T3 desktop app (via its t3code:// link) over the web app
+    /// when opening a thread.
     static let t3OpenInApp = Key<Bool>("t3OpenInApp", default: true)
     /// Show the T3 sessions widget in place of the calendar on the home tab.
     static let t3ReplaceCalendar = Key<Bool>("t3ReplaceCalendar", default: false)
@@ -305,14 +305,6 @@ class T3SessionsManager: ObservableObject {
             break
         }
 
-        // Surface the relaunch hint proactively: desktop running without its
-        // control channel means in-app opening can't work this launch.
-        if Defaults[.t3OpenInApp], T3DesktopControl.runningApp() != nil {
-            desktopNeedsRelaunch = !(await T3DesktopControl.isControlAvailable())
-        } else {
-            desktopNeedsRelaunch = false
-        }
-
         var newSections = [localSection]
         newSections.append(contentsOf: remoteResults)
 
@@ -469,14 +461,9 @@ class T3SessionsManager: ObservableObject {
         return Defaults[.t3LiveActivityIdle] && isConnectedAnywhere
     }
 
-    /// True when the desktop app is running but without its control channel,
-    /// so in-app thread opening needs one relaunch (settings button).
-    @Published private(set) var desktopNeedsRelaunch = false
-
-    /// Opens this thread's exact chat: preferably by navigating the T3
-    /// desktop app over its CDP control channel (the app ships no deep-link
-    /// handling of its own — t3code:// URLs are dropped), falling back to
-    /// the web app served by the same server (`/{environmentId}/{threadId}`).
+    /// Opens this thread's exact chat: in the T3 desktop app through its
+    /// `t3code://threads/…` link, falling back to the web app served by the
+    /// same server (`/{environmentId}/{threadId}`).
     func openThread(_ row: ThreadRow) {
         guard let env = row.environmentId else { return }
 
@@ -488,36 +475,17 @@ class T3SessionsManager: ObservableObject {
         }
 
         Task { @MainActor in
-            let route = T3ThreadRoute.path(environmentId: env, threadId: row.thread.id, protocolVersion: row.protocolVersion)
-            if await T3DesktopControl.navigate(route: route) {
-                desktopNeedsRelaunch = false
-                T3DesktopControl.activate()
-                return
+            if await !T3DesktopControl.open(environmentId: env, threadId: row.thread.id) {
+                openThreadInBrowser(row)
             }
-            if T3DesktopControl.runningApp() == nil {
-                // Not running: start it with the control flag, then navigate.
-                if await T3DesktopControl.launchWithControl(),
-                   await T3DesktopControl.navigate(route: route)
-                {
-                    desktopNeedsRelaunch = false
-                }
-                T3DesktopControl.activate()
-                return
-            }
-            // Running without the flag: can't navigate it this launch.
-            desktopNeedsRelaunch = true
-            openThreadInBrowser(row)
         }
     }
 
-    /// Launches the desktop app with its control channel (notch button for
-    /// the "isn't running" state; focuses the app if it's already up).
+    /// Notch button for the "isn't running" state; focuses the app if it's
+    /// already up.
     func launchDesktop() {
         Task { @MainActor in
-            if T3DesktopControl.runningApp() == nil {
-                _ = await T3DesktopControl.launchWithControl()
-            }
-            T3DesktopControl.activate()
+            await T3DesktopControl.launch()
             // The app's server child takes a few seconds to come up after
             // launch; keep refreshing until we connect (or give up) so the
             // tab fills in on its own instead of needing a second press.
@@ -526,7 +494,7 @@ class T3SessionsManager: ObservableObject {
     }
 
     /// Polls a few times over ~15s, stopping as soon as the local server is
-    /// reachable, so state settles after a launch/relaunch without user input.
+    /// reachable, so state settles after a launch without user input.
     private func pollUntilConnected() async {
         for _ in 0..<10 {
             await pollAll()
@@ -535,22 +503,10 @@ class T3SessionsManager: ObservableObject {
         }
     }
 
-    /// Relaunches the desktop app with the control channel (settings button —
-    /// quits the app, so the user picks a moment when no agent is mid-turn).
-    func relaunchDesktopWithControl() {
-        Task { @MainActor in
-            if await T3DesktopControl.relaunchWithControl() {
-                desktopNeedsRelaunch = false
-            }
-            await pollUntilConnected()
-        }
-    }
-
     private func openThreadInBrowser(_ row: ThreadRow) {
         guard let env = row.environmentId,
-              let threadURL = URL(string: T3ThreadRoute.path(
-                environmentId: env, threadId: row.thread.id, protocolVersion: row.protocolVersion
-              ), relativeTo: row.serverOrigin)?.absoluteURL
+              let threadURL = URL(string: T3ThreadRoute.path(environmentId: env, threadId: row.thread.id),
+                                  relativeTo: row.serverOrigin)?.absoluteURL
         else { return }
 
         // First open (or expired cookie): establish the browser session via

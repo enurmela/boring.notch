@@ -81,27 +81,18 @@ to update; stock upstream releases would remove the T3 integration.
   new sessions append without displacing existing ones. Temporary disconnections
   preserve the order until the integration is stopped or the app restarts.
 
-## Launching T3 Code with the control channel
+## Opening sessions in T3 Code
 
-Opening a session **in the desktop app** needs T3 Code running with
-`--remote-debugging-port=9223` (its Electron build has no deep-link handler;
-boring.notch navigates it over that local CDP channel by setting the
-renderer's `location.hash` — the desktop routes threads in the hash). Three
-ways it launches correctly:
+Clicking a local session opens `t3code://threads/{environmentId}/{threadId}`
+with the installed T3 Code app. The desktop app routes the link to the thread,
+and Launch Services starts the app first if it isn't running. No launch flags
+or launcher app are needed. The link handler shipped in T3 Code builds from
+2026-10-11 onward (t3code #18454). On older builds the click falls back to the
+web app in the browser.
 
-- Click a session in the notch while T3 isn't running — boring.notch launches
-  it with the flag (the T3 tab's "isn't running" state also has a Launch
-  button).
-- Use **/Applications/T3 Code Launcher.app** (created for this fork — an
-  AppleScript applet wearing the T3 icon) as the Dock / login item instead of
-  the real app.
-- After a plain Dock launch, use the "Relaunch T3 Code" button in
-  Settings → T3 Code.
-
-Launched any other way, session clicks fall back to the T3 web app in the
-browser. Protocol v2 threads use `/threads/{environmentId}/{threadId}`; desktop
-navigation uses that path in the renderer’s hash. When stable and nightly are
-both installed, the running app takes precedence.
+Remote sessions, and every session when "Open sessions in the T3 Code app" is
+off, open in the web app at `/{environmentId}/{threadId}` on their server.
+When stable and nightly are both installed, the running app takes precedence.
 
 ## Keeping up with upstream
 
