@@ -57,12 +57,11 @@ struct T3CompatibilityTests {
         try expect(T3AgentAwareness.detail(for: .failed, thread: failure) == "Provider unavailable", "v2 error detail")
         let completed = try thread(["latestRunCompletedAt": "2026-10-03T09:00:00.000Z"])
         try expect(completed.completionTimestamp == "2026-10-03T09:00:00.000Z", "Completion age uses run timestamp")
-        try expect(T3ThreadRoute.path(environmentId: "env", threadId: "thread", protocolVersion: 2)
-                   == "/threads/env/thread", "v2 route")
-        try expect(T3ThreadRoute.path(environmentId: "env", threadId: "thread", protocolVersion: nil)
-                   == "/env/thread", "Legacy route")
-        try expect(T3ThreadRoute.path(environmentId: "a/b", threadId: "c#d", protocolVersion: 2)
-                   == "/threads/a%2Fb/c%23d", "Route segments are escaped")
+        try expect(T3ThreadRoute.path(environmentId: "env", threadId: "thread") == "/env/thread", "Web route")
+        try expect(T3ThreadRoute.path(environmentId: "a/b", threadId: "c#d") == "/a%2Fb/c%23d",
+                   "Route segments are escaped")
+        try expect(T3ThreadRoute.appURL(environmentId: "env", threadId: "thread")?.absoluteString
+                   == "t3code://threads/env/thread", "Desktop app link")
         try expect(T3AutoPair.databasePath(protocolVersion: 2).hasSuffix("/statev2.sqlite"), "v2 pairing store")
         try expect(T3AutoPair.databasePath(protocolVersion: nil).hasSuffix("/state.sqlite"), "Legacy pairing store")
         let shell = try JSONDecoder().decode(T3ShellSnapshot.self, from: Data("{\"projects\":[],\"threads\":[],\"schemaVersion\":2,\"archivedThreads\":[]}".utf8))
